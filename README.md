@@ -7,4 +7,4 @@ Since the increase of attention and concern in the public opinion, Fabio Divino 
 
 Our activity is developed with a collaborative intentions,  we are open to criticism and suggestions, and to scientific interactions with other research groups.
 
-![StatPic](StatGroup19Pic.jpg)
+![StatPic](www/StatGroup19Pic.jpg)
