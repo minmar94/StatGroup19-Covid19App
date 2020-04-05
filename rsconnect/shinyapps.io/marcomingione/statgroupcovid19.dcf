@@ -1,0 +1,11 @@
+name: statgroupcovid19
+title:
+username:
+account: marcomingione
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2060992
+bundleId: 2971998
+url: https://marcomingione.shinyapps.io/statgroupcovid19/
+when: 1586104361.05898
+lastSyncTime: 1586104361.05999

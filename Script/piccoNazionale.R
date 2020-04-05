@@ -1,9 +1,9 @@
 library(nplr)
 
 rm(list=ls())
-load("../RData/DatiRegione1Apr_recode.RData")
+load("Data/DatiRegione1Apr_recode.RData")
 
-source("_growthGLM.r")
+source("Script/_growthGLM.r")
 
 ag=dati
 icu=ag$terapia_intensiva
@@ -20,7 +20,7 @@ library(doSNOW)
 
 levels(fa2)[6]="Friuli V. G."
 
-residents=read.table("../RData/residenti2019.csv",header=TRUE,sep=",")
+residents=read.table("Data/residenti2019.csv",header=TRUE,sep=",")
 residents[,1]=as.character(residents[,1])
 residents[10,1]="Valle dAosta"
 
