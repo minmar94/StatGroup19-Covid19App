@@ -1,233 +1,85 @@
 library(MASS)
 library(rmutil)
+library(GA)
+library(nplr)
+library(lqmm)
 
-Richards=function(ti,pars) {
-den=(1+10^(pars[3]*(pars[4]-ti)))^pars[5]
-pars[1]+(exp(pars[2]))/den}
+Richards <- function(ti,pars) {
+    den <- (1+10^(pars[3]*(exp(pars[4])-ti)))^exp(pars[5])
+    return(exp(pars[1])+(exp(pars[2]))/den)
+}     
 
-              
-
-mirrorRichards=function(ti,pars,allTi,tmax) {
-
-    cutoff=min(allTi)+diff(range(allTi))*exp(pars[6])/(1+exp(pars[6]))
-# MR(t) = R(t,b1,T,h1,p1,s1) I(t< c) + I(t >= c) T-R(t-c,b2,T,h2,p2,s2)
-    if(ti<cutoff)
-    {
-        return(Richards(ti,pars[1:5]))
-    }
-    if(ti>=cutoff) {
-        Top=pars[1]+exp(pars[2])
-        rg=Top-exp(pars[7])
-        return(Top-Richards(tmax-ti,c(rg,pars[7:10])))
-    }
-    
+mirrorRichards <- function(ti,pars) {
+    peak <- exp(ifelse(ti<0,pars[4],pars[6]))
+    symm <- exp(ifelse(ti<0,pars[5],pars[7]))
+    hill <- ifelse(ti<0,pars[3],pars[8])
+    den <- (1+10^(hill*((peak-abs(ti)))))^symm
+    return(exp(pars[1])+exp(pars[2])/den)
 }
 
-
-noncumGLMGamma=function(count,ti,timax=NA,family="Poisson",nstart=5000,useLog=F) {
-
-     lti=ti
-    if(useLog) {lti=log10(ti)}
+growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,monotone=TRUE, run = 500) {
 
     if(is.na(timax)) {timax=max(ti)}
-
-    wmax=which.max(count)
+    if(!monotone) {
+        timax=timax-ti[which.max(count)]
+        ti=ti-ti[which.max(count)]}
 
     p2=log(max(count)-min(count))
-    pe2=lti[(wmax+1):length(lti)]-lti[wmax]
-    inits=rnorm(3)
+    if(!monotone) {
+        np=nplr(1:sum(ti<=0),convertToProp(count[which(ti<=0)]),useLog=F)@pars}
+    if(monotone) {
+        np=nplr(ti,convertToProp(count),useLog=F)@pars}
+    np=as.vector(unlist(np))
+    inits=c(log(min(count)+1),p2,np[4],log(np[3]),log(np[5]))
+    if(!monotone) {inits=c(inits,0,0,0)}
     
-    if(family=="nb") {inits=c(inits,1)}
+    if(family=="nb") {inits=c(inits,0)}
 
-    likPois=function(pars,lti,count) {
-  if(pars[1]+exp(pars[2])-pars[7]<0) {return(1e30)}
-        linPred=dggamma(lti, exp(pars[1]), exp(pars[2]), exp(pars[3]), log=FALSE)
+    if(monotone) {lp=Richards}
+    if(!monotone) {lp=mirrorRichards}
+
+    likPois=function(pars,ti,count) {
+        linPred=lp(ti,pars)
         -sum(dpois(count,linPred,log=T))
     }
 
-    likNB=function(pars,lti,count) {
-         if(        pars[1]+exp(pars[2])-pars[7]<0 | pars[6]<min(ti) | pars[6]>max(ti)) {return(1e30)}
-        pars=exp(pars)
-                linPred=dggamma(lti,pars[1],pars[2],pars[3])
-        -sum(dnbinom(count,size=pars[4],mu=linPred,log=T))
+    likNB=function(pars,ti,count) {
+        linPred=lp(ti,pars)
+        -sum(dnbinom(count,size=exp(pars[length(pars)]),mu=linPred,log=T))
 }
 
     if(family=="nb") {lik=likNB}
     if(family=="Poisson") {lik=likPois}
     if(family!="nb" & family!="Poisson") {stop("Family must be nb or Poisson")}
-
-    op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F))
-    tries=0
-    while(inherits(op,"try-error") & tries<50) {
-        inits=inits+rnorm(length(inits))
-        op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F),silent=TRUE)
-        tries=tries+1}
-    if(tries==50) {stop("Something wrong")}
-    if(nstart>1) {
-        for(repl in 2:nstart) {
-            inits=inits+rnorm(length(inits))
-            jnk=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F),silent=TRUE)
-            if(!inherits(jnk,"try-error") && jnk$value<op$value && !any(is.nan(jnk$se))) {op=jnk}
-        }
-
-    }
     
-    pars=exp(op$par)
-    lti.add=(max(ti)+1):timax
-    if(useLog) {lti.add=log10(lti.add)}
-    lti=c(lti,lti.add)
-    linPred=dggamma(lti,pars[1],pars[2],pars[3])
+    inits2=optim(inits,function(x) lik(x,ti=ti,count=count),method="BFGS")$par
     
-    return(list(linPred=linPred,pars=pars,lik=-op$value,R2=cor(count,linPred[1:length(ti)])^2,op=op))}
-
-noncumGLMRichards=function(count,ti,timax=NA,family="Poisson",nstart=100,useLog=F,fixedBottom=FALSE) {
-
-     lti=ti
-    if(useLog) {lti=log10(ti)}
-
-    if(is.na(timax)) {timax=max(ti)}
-
-    wmax=which.max(count)
-
-    p2=log(max(count)-min(count))
-    pe2=lti[(wmax+1):length(lti)]-lti[wmax]
+    rg <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),
+             upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE,
+             suggestions=rbind(inits,inits2), run = run)
     
-    inits=c(min(count),p2,0.5,mean(lti[1:wmax]),1,0.5,p2,0.5,mean(pe2),1)
+    rg2 <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),
+              upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE, run = run)
     
-    if(family=="nb") {inits=c(inits,1)}
+    rg <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(min(rg@solution)*1.5,length(inits)),
+             upper=rep(max(rg@solution)*1.5,length(inits)),maxiter=maxiter,optim=TRUE,
+             suggestions=rbind(rg@solution,rg2@solution),optimArgs=list(control=list(maxit=1000)), run = run)
 
-    likPois=function(pars,lti,count) {
-        linPred=sapply(lti,mirrorRichards,pars=pars,allTi=lti,tmax=timax)
-        linPred[linPred==0]=1e-9
-        -sum(dpois(count,linPred,log=T))
-    }
+    pars=rg@solution[1,]
 
-    likNB=function(pars,lti,count) {
-        linPred=sapply(lti,mirrorRichards,pars=pars,allTi=lti,tmax=timax)
-                linPred[linPred==0]=1e-9
-        -sum(dnbinom(count,size=exp(pars[11]),mu=linPred,log=T))
-}
+    op=optim(pars,function(x) lik(x,ti=ti,count=count),hessian=TRUE,method="BFGS")
 
-    if(family=="nb") {lik=likNB}
-    if(family=="Poisson") {lik=likPois}
-    if(family!="nb" & family!="Poisson") {stop("Family must be nb or Poisson")}
-
-    if(fixedBottom && family=="nb") {
-        inits=inits[-1]
-        lik=function(x,lti,count) {
-            pars=c(0,x)
-            likNB(pars,lti,count)}
-    }
-    if(fixedBottom && family=="Poisson") {
-        inits=inits[-1]
-        lik=function(x,lti,count) {
-            pars=c(0,x)
-            likPois(pars,lti,count)}
-    }
- op=ga("real-valued",function(x) -lik(x,lti,count),lower=rep(-15,10),upper=rep(15,10),maxiter=1000,optim=TRUE,suggestions=op$par)
-
-    op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F))
-    tries=0
-    while(inherits(op,"try-error") & tries<50) {
-        inits=inits+rnorm(length(inits))
-        op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F),silent=TRUE)
-        tries=tries+1}
-    if(tries==50) {stop("Something wrong")}
-    if(nstart>1) {
-        for(repl in 2:nstart) {
-            inits=inits+rnorm(length(inits))
-            jnk=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=F),silent=TRUE)
-            if(!inherits(jnk,"try-error") && jnk$value<op$value && !any(is.nan(jnk$se))) {op=jnk}
-        }
-
-    }
-
-    if(family=="Poisson") {
-        require(GA)
-   sop=ga("real-valued",function(x) -lik(x,lti,count),lower=rep(-15,10),upper=rep(15,10),maxiter=1000,optim=TRUE,suggestions=op$par)
-    op$value=-max(sop@fitness)
-    op$par=sop@solution}
+    convergence <- is.positive.definite(op$hessian)
+    se <- rep(NA,length(pars))
+    if(!convergence) {warning("Information matrix is not positive definite, possible local optimum")}
+    if(convergence) {se <- sqrt(diag(solve(op$hessian)))}
+    ti <- c(ti,(max(ti)+1):timax)
     
-    pars=op$par
-    pars[2]=exp(pars[2])+pars[1]
-    if(family=="nb") {pars[11]=exp(pars[11])}
-    lti.add=(max(ti)+1):timax
-    if(useLog) {lti.add=log10(lti.add)}
-    lti=c(lti,lti.add)
-    linPred=as.vector(unlist(sapply(lti,mirrorRichards,pars=pars,allTi=lti,tmax=timax)))
-    
-    return(list(linPred=linPred,pars=pars,lik=-op$value,R2=cor(count,linPred[1:length(ti)])^2,peak=ifelse(useLog,10^pars[4],pars[4]),op=op))}
+    linPred <- lp(ti,pars)
+
+    return(list(linPred=linPred,pars=pars,lik=rg@fitnessValue,R2=cor(count,linPred[1:length(count)])^2,se=se,op=op,rg=rg))}
 
 
-
-growthGLM=function(count,ti,timax=NA,family="Poisson",nstart=5000,useLog=F,fixedBottom=FALSE) {
-
-    lti=ti
-    if(useLog) {lti=log10(ti)}
-
-    if(is.na(timax)) {timax=max(ti)}
-
-    p2=log(max(count)-min(count))
-    inits=c(min(count),p2,0.5,mean(lti),1)
-    
-    if(family=="nb") {inits=c(inits,1)}
-
-    likPois=function(pars,lti,count) {
-        den=(1+10^(pars[3]*(pars[4]-lti)))^pars[5]
-        linPred=pars[1]+(exp(pars[2]))/den
-        -sum(dpois(count,linPred,log=T))
-    }
-
-likNB=function(pars,lti,count) {
- den=(1+10^(pars[3]*(pars[4]-lti)))^pars[5]
-        linPred=pars[1]+(exp(pars[2]))/den
-        -sum(dnbinom(count,size=exp(pars[6]),mu=linPred,log=T))
-}
-
-    if(family=="nb") {lik=likNB}
-    if(family=="Poisson") {lik=likPois}
-    if(family!="nb" & family!="Poisson") {stop("Family must be nb or Poisson")}
-
-    if(fixedBottom && family=="nb") {
-        inits=inits[-1]
-        lik=function(x,lti,count) {
-            pars=c(0,x)
-            likNB(pars,lti,count)}
-    }
-    if(fixedBottom && family=="Poisson") {
-        inits=inits[-1]
-        lik=function(x,lti,count) {
-            pars=c(0,x)
-            likPois(pars,lti,count)}
-    }
-
-    op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=TRUE))
-    tries=0
-    while(inherits(op,"try-error") & tries<50) {
-        inits=inits+rnorm(length(inits))
-        op=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=TRUE),silent=TRUE)
-        tries=tries+1}
-    if(tries==50) {stop("Something wrong")}
-    if(nstart>1) {
-        for(repl in 2:nstart) {
-            inits=inits+rnorm(length(inits))
-            jnk=try(optim(inits,function(x) lik(x,lti=lti,count=count),method="BFGS",hessian=TRUE),silent=TRUE)
-            if(!inherits(jnk,"try-error") && jnk$value<op$value && !any(is.nan(jnk$se))) {op=jnk}
-        }
-
-    }
-
-    
-    pars=op$par
-    pars[2]=exp(pars[2])+pars[1]
-    if(family=="nb") {pars[6]=exp(pars[6])}
-    lti.add=(max(ti)+1):timax
-    if(useLog) {lti.add=log10(lti.add)}
-    lti=c(lti,lti.add)
-den=(1+10^(pars[3]*(pars[4]-lti)))^pars[5]
-    linPred=pars[1]+(pars[2]-pars[1])/den
-
-    return(list(linPred=linPred,pars=pars,lik=-op$value,R2=cor(count,linPred[1:length(ti)])^2,peak=ifelse(useLog,10^pars[4],pars[4]),se.unstransformed=sqrt(diag(solve(op$hessian))),op=op))}
 
 growthGLMcov=function(count,ti,useCov=rep(0,5), cov.bottom=0,cov.top=0,cov.peak=0,cov.slope=0,cov.asy=0,gap.par=F,timax=NA,nstart=5000,useLog=F) {
     

@@ -5,21 +5,37 @@
 
 StatGroup-19 è un gruppo di ricerca scientifca che nasce in una forma del tutto spontanea e di dovere civico per studiare ed analizzare il processo di diffusione mondiale della sindrome CoviD-19 a causa del virus SARS-CoV-2, con particolare attenzione alla diffusione in Italia. La nostra attività è svolta con spirito totalmente collaborativo, aperto a critiche e suggerimenti ma soprattutto alle interazioni scientifiche con altri gruppi di ricerca.
 
+<b>Blog: </b> https://statgroup-19.blogspot.com/
+ <br>
+<b>Facebook: </b> https://www.facebook.com/StatGroup-19-100907671547894/
 ***
 
 ## Il Team
 
-<img src="www/FabioDivino.jpg" width="200" height="150" />  Fabio Divino, Università del Molise (fabio.divino@unimol.it)
-
-<img src="www/AlessioFa.jpg" width="200" height="150" /> Alessio Farcomeni, Università di Roma - Tor Vergata (alessio.farcomeni@uniroma2.it)
-
-<img src="www/giovannajona.jpg" width="200" height="150" /> Giovanna Jona Lasinio, Università di Roma - La Sapienza (giovanna.jonalasinio@uniroma1.it)
-
-<img src="www/GianfrancoLovison.jpg" width="200" height="150" /> Gianfranco Lovison, Università di Palermo (gianfranco.lovison@unipa.it)
-
-<img src="www/AntonelloMaruotti.jpg" width="200" height="150" /> Antonello Maruotti, Università LUMSA (a.maruotti@lumsa.it)
+<br>
 
 
+<table float="center" width="75%" border="0">
+  <tr>    
+  <td><img src="www/FabioDivino.jpg" alt="" align="center" width="90" height="110" /></td>
+  <td><img src="www/AlessioFa.jpg" alt="" align="center" width="135" height="110" /></td>
+  <td><img src="www/giovannajona.jpg" alt="" align="center" width="115" height="110"/></td>
+  <td><img src="www/GianfrancoLovison.jpg" alt="" align="center" width="105" height="110"/></td>
+  <td><img src="www/AntonelloMaruotti.jpg" alt="" align="center" width="105" height="110"/></td>
+  </tr>
+</table>
+
+<br>
+
+
+<h4>Contatti (da sinistra a destra)</h4>
+<ul>
+  <li><b>Fabio Divino</b>, Università del Molise (fabio.divino@unimol.it)</li>
+  <li><b>Alessio Farcomeni</b>, Università di Roma - Tor Vergata (alessio.farcomeni@uniroma2.it)</li>
+  <li><b>Giovanna Jona Lasinio</b>, Università di Roma - La Sapienza (giovanna.jonalasinio@uniroma1.it)</li>
+  <li><b>Gianfranco Lovison</b>, Università di Palermo (gianfranco.lovison@unipa.it)</li>
+  <li><b>Antonello Maruotti</b>, Università LUMSA (a.maruotti@lumsa.it)</li>
+</ul>   
 ***
 
 ### Fonti
@@ -32,10 +48,13 @@ La parte relativa al modello è interamente implementata dal gruppo di ricerca S
 
 ### Com'è fatto
 
-L'applicazione è interamente sviluppata in $\texttt{R}$, atraverso l'utilizzo della libreria [Shiny](https://rstudio.com/products/shiny/). Other libraries used are ggplot2 and ggiraph (for interactive data-visualization), dplyr (for data-processing) andshinyWidgets (for some of the widgets included). The platform lies online on the computing space made available by ShinyApps (website).
+L'applicazione è interamente sviluppata in R, attraverso l'utilizzo della libreria [Shiny](https://rstudio.com/products/shiny/). Altre librerire utilizzate sono: ggplot2 e ggiraph (per la visualizzazione), tidyverse (per la gestione e l'analisi dei dati) e shinyWidgets (per il layout). L'applicazione è attiva e supportata dalla piattaforma gratuita [ShinyApps](https://www.shinyapps.io/).
 
 Tutti i codici utilizzati utilizzati sono disponibili al seguente [link](https://github.com/minmar94/StatGroup19).
 
 ***
+<h4><b>Sviluppatore</b></h4>
 
-Questa applicazione è sviluppata da Marco Mingione (marco.mingione@uniroma1.it). 
+<img src="www/MarcoMe.jpg" alt="" width="110" height="110" />
+<br>
+Questa applicazione è sviluppata da Marco Mingione, dottorando presso il Dipartimento di Scienze Statistiche dell'Università di Roma - La Sapienza   (marco.mingione@uniroma1.it). 
