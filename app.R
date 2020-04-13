@@ -4,7 +4,6 @@ require(magrittr)
 require(shiny)
 require(shinythemes)
 require(shinyWidgets)
-require(ggiraph)
 require(lubridate)
 require(DT)
 require(stringi)
@@ -17,14 +16,17 @@ require(doSNOW)
 require(sf)
 require(sp)
 require(rmarkdown)
+require(ggiraph)
 require(ggiraphExtra)
 require(plotly)
 require(rgeos)
+require(lme4)
 
 rm(list=ls())
 
 source("Script/_growthGLM.r")
 source("Script/UsefulFuns.R")
+load("Data/ICU/ICUOutput.RData")
 
 # Read aggregated Italian data up to today 
 dati_Ita <- read_italian(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv")
@@ -61,6 +63,7 @@ residents[10,1] <- "Valle d'Aosta"
 
 # Data preparation for the model
 data_formodel_prep <- prepdata_for_model(dftoprep = dati_reg %>% spread(Key, Value) %>% arrange(denominazione_regione), resdata = residents)
+
 
 # Creo mappa di default
 #basemap <- plot_leaflet_map(df = joined_reg, variable = "Nuovi positivi", datetoselect = today)
@@ -111,8 +114,8 @@ ui <- navbarPage(theme = shinytheme("united"),
                               
                               mainPanel(
                                 splitLayout(
-                                  plotlyOutput(outputId = "MapIta", height = "350px"), 
-                                  plotlyOutput(outputId = "TSIncrPerc", width = "100%", height = "350px")
+                                  plotlyOutput(outputId = "MapIta", height = "450px"), 
+                                  plotlyOutput(outputId = "TSIncrPerc", height = "450px")
                                 )
                               )
                             ),
@@ -126,13 +129,15 @@ ui <- navbarPage(theme = shinytheme("united"),
                           fluidPage(
                             
                             
-                            tags$h2(tags$strong("Modello")), 
+                            tags$h2(tags$strong("Modello lineare generalizzato di Richards*")),
+                            tags$h5("*per maggiori dettagli sulla metodologia si rimanda al seguente ", 
+                                    tags$a(href = "http://afarcome.altervista.org/growthGLM.pdf" , "link")), 
                             sidebarLayout(
                               sidebarPanel(
                                 pickerInput(inputId = "VarForModel", 
                                             label = "Seleziona una variabile",
-                                            choices = list("Totale casi", "Totale positivi", "Totale ricoverati",
-                                                           "Ricoverati con sintomi","Terapia intensiva",
+                                            choices = list("Totale casi", "Totale positivi", "Totale ricoverati", "Terapia intensiva",
+                                                           "Ricoverati con sintomi", "Dismessi/Guariti",
                                                            "Isolamento domiciliare", "Deceduti"),
                                             selected = "Totale casi"), 
                                 materialSwitch(inputId = "ModRegioneSiNo", 
@@ -152,7 +157,7 @@ ui <- navbarPage(theme = shinytheme("united"),
                               ), 
                               verticalLayout(
                                 fluidRow(
-                                  splitLayout(cellWidths = c("49%", "49%"), ggiraphOutput("PredCumCases"), ggiraphOutput("PredNewCases"))
+                                  splitLayout(cellWidths = c("49%", "49%"), plotlyOutput("PredCumCases"), plotlyOutput("PredNewCases"))
                                 ), 
                                 tags$hr(),
                                 fluidRow(
@@ -164,6 +169,19 @@ ui <- navbarPage(theme = shinytheme("united"),
                             
                           )
                  ),
+                 tabPanel("Terapie intensive", 
+                          fluidPage(
+                            tags$h2(tags$strong(paste("Previsione* ricoveri in terapia intensiva per il giorno ", 
+                                                      day(max(dati_reg$data)+1), 
+                                                      stri_trans_totitle(month(max(dati_reg$data)+1, label = T, abbr = F)), 
+                                                      year(max(dati_reg$data)+1)))),
+                            tags$h5("*per maggiori dettagli sulla metodologia si rimanda al seguente ", 
+                                    tags$a(href = "http://afarcome.altervista.org/ICU.predictions.pdf" , "link")), 
+                            fluidRow(
+                              DTOutput("ICuTab"),
+                              plotlyOutput("BarplotIcu")
+                            )
+                          )),
                  tabPanel("Credits", div(style="margin-top:-2.5em", includeMarkdown("InfoandCredits.md")))
                  
 )
@@ -178,10 +196,11 @@ server <- function(input, output){
   Coloro che ritengono di essere infetti devono rimanere in quarantena, indossare una mascherina chirurgica e chiamare immediatamente un medico al fine di ricevere appropriate indicazioni."})
   
   #
-  output$Defins <- renderUI(HTML("<ul><li><b>Attualmente positivi=</b> ricoverati con sintomi + terapia intensiva + isolamento domiciliare</li>
-  <li><b>Nuovi attualmente positivi=</b> totale attualmente positivi del giorno corrente - totale attualmente positivi del giorno precedente</li>
-  <li><b>Nuovi positivi=</b> totale casi giorno corrente - totale casi giorno precedente</li>
-  <li><b>Totale casi=</b> totale attualmente positivi + totale deceduti + totale guariti</li></ul>"))
+  output$Defins <- renderUI(HTML("<ul><li><b>Attualmente positivi =</b> ricoverati con sintomi + terapia intensiva + isolamento domiciliare</li>
+  <li><b>Nuovi attualmente positivi =</b> totale attualmente positivi del giorno corrente - totale attualmente positivi del giorno precedente</li>
+  <li><b>Nuovi positivi =</b> totale casi giorno corrente - totale casi giorno precedente</li>
+  <li><b>Totale casi =</b> totale attualmente positivi + totale deceduti + totale guariti</li>
+  <li><b>Totale ricoverati =</b> ricoverati con sintomi + terapia intensiva</li></ul>"))
   
   #
   output$headSummary <- renderUI({HTML(paste0(h2("Situazione italiana relativa all'epidemia CoviD-19 ad oggi*:"),
@@ -214,10 +233,14 @@ server <- function(input, output){
     
     terapia_intens_ultimo <- dat_today$`Terapia intensiva`[2]
     incr_terapia <- paste_signpercent(dat_today$`Terapia intensiva`[2], dat_today$`Terapia intensiva`[1])
+
+    totale_ricoverati_ultimo <- dat_today$`Totale ricoverati`[2]
+    incr_ricoverati <- paste_signpercent(dat_today$`Totale ricoverati`[2], dat_today$`Totale ricoverati`[1])
     
     HTML(paste0("<ul>",
                 "<li><b>Totale casi: </b>", totale_casi_ultimo, "(",incr_totale_casi,")","</li>",
                 "<li><b>Attualmente positivi: </b>", attualmente_positivi_ultimo,"(",incr_attualmente_positivi,")","</li>",
+                "<li><b>Totale ricoverati: </b>", totale_ricoverati_ultimo, "(",incr_ricoverati,")","</li>",
                 "<li><b>Terapia intensiva: </b>", terapia_intens_ultimo, "(",incr_terapia,")","</li>",
                 "<li><b>Ricoverati con sintomi: </b>", ricov_sintomi_ultimo, "(",incr_ricoverati,")","</li>",
                 "<li><b>Isolamento domiciliare: </b>", isol_domic_ultimo, "(",incr_isolamento,")","</li>",
@@ -248,7 +271,7 @@ server <- function(input, output){
       width = 250,
       value = 1,
       min = 1,
-      max = 30
+      max = 15
     )
   })
   
@@ -347,6 +370,11 @@ server <- function(input, output){
   
   output$MapIta <- renderPlotly({
   
+    titleannots <- ifelse(input$ProvinciaSiNo, "Mappa provinciale ", "Mappa regionale ")
+    annots <- list(x = 1, y = -0.1, text = paste(titleannots, "in data ", as.character(datetoselect())), 
+                       showarrow = F, xref='paper', yref='paper', 
+                       xanchor='right', yanchor='auto', xshift=0, yshift=0,
+                       font=list(size=15, color="black"))
     p <- plot_ly(data = joined_reg %>% 
                    filter(Key == as.character(variable()), data == as.character(datetoselect())), 
                  stroke = I("black"),
@@ -355,17 +383,19 @@ server <- function(input, output){
                  hoveron = "fills",
                  hoverinfo = "text", 
                  showlegend = F) %>%
-      colorbar(title = as.character(variable()))
+      layout(legend = list(orientation = "h"), annotations = annots) %>% 
+      colorbar( title = list(text = paste0("<b>", as.character(variable()), "</b>")), len = 0.6)
     
     if(input$ProvinciaSiNo){
       p <- plot_ly(data = joined_prov %>% filter(Key == "Totale casi", data == as.character(datetoselect())), 
                    stroke = I("black"),
                    split = ~NAME, color = ~Value, colors = "YlOrRd", alpha = 1, 
-                   text = ~paste0(NAME_2, "\n", Value, " people"),
+                   text = ~paste0(NAME_2, " (", NAME, ")", "\n", Value, " people"),
                    hoveron = "fills",
                    hoverinfo = "text", 
                    showlegend = F) %>%
-        colorbar(title = "Totale casi")
+        layout(legend = list(orientation = "h"), annotations = annots) %>% 
+        colorbar(title = list(text = "<b>Totale casi</b>"), len = 0.6)
       
     }
     
@@ -392,25 +422,25 @@ server <- function(input, output){
   # Summary Italia
   output$SummaryModel <- reactive({
     
-    summary_out_model(outputModello())
+    summary_out_model(outputModello(), varest = input$VarForModel)
     
   })
   
   # Plot nuovi cumulati Italia
-  output$PredCumCases <- renderggiraph({
+  output$PredCumCases <- renderPlotly({
     
     plot_mod1 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Cumulati")
     
-    ggiraph(ggobj = plot_mod1)
+    ggplotly(plot_mod1)
     
   })
   
   # Plot nuovi predetti Italia
-  output$PredNewCases <- renderggiraph({
+  output$PredNewCases <- renderPlotly({
     
     plot_mod2 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Nuovi")
     
-    ggiraph(ggobj = plot_mod2)
+    ggplotly(plot_mod2)
     
   })
   
@@ -419,6 +449,34 @@ server <- function(input, output){
     DT_out_model(outputmod = outputModello(), hz = input$SelDateModel)
   })
   
+  
+  
+  
+  output$ICuTab <- renderDT({
+
+    outmod_terapie_tab %>%
+      datatable(rownames = F, options = list(dom = 'tp', pageLength = 10, scrollX = T, 
+                                             columnDefs = list(list(className = 'dt-center', targets = "_all"))))
+
+  })
+  
+  output$BarplotIcu <- renderPlotly({
+    
+    levels(outmod_terapie_plot$Regione)[5] <- "Emilia-Romagna"
+    levels(outmod_terapie_plot$Regione)[6] <- "Friuli Venezia Giulia"
+    levels(outmod_terapie_plot$Regione)[17] <- "Trentino-Alto Adige"
+    
+    outmod_terapie_plot %>% 
+      left_join(dati_reg %>% spread(Key, Value) %>% 
+                  filter(data == max(data)) %>% 
+                  dplyr::select(starts_with("Tera"), denominazione_regione), by = c("Regione"="denominazione_regione")) %>% 
+      plot_ly(x = ~Regione, y = ~`Terapia intensiva`, type = "bar", name = "Osservati", marker = list(color = "firebrick")) %>% 
+      add_trace(y = ~Previsione, name = "Previsti", marker = list(color = "darkorange")) %>% 
+      layout(title = "Previsioni di ieri",
+             xaxis = list(title = ""),
+             yaxis = list(title = "Terapie intensive"))
+    
+  })
   
 }
 

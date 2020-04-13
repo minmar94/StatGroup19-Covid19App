@@ -1,0 +1,14 @@
+Preparing to deploy application...DONE
+Uploading bundle for application: 2061164...DONE
+Deploying bundle: 3003702 for application: 2061164 ...
+Waiting for task: 715164434
+  building: Parsing manifest
+  building: Building image: 3341337
+  building: Installing system dependencies
+  building: Fetching packages
+  building: Installing packages
+  building: Installing files
+  building: Pushing image: 3341337
+  deploying: Starting instances
+  terminating: Stopping old instances
+Application successfully deployed to https://marcomingione.shinyapps.io/StatGroupCovid19/

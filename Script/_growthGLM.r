@@ -3,21 +3,21 @@ library(rmutil)
 library(GA)
 library(nplr)
 library(lqmm)
+library(numDeriv) 
 
-Richards <- function(ti,pars) {
-    den <- (1+10^(pars[3]*(exp(pars[4])-ti)))^exp(pars[5])
-    return(exp(pars[1])+(exp(pars[2]))/den)
-}     
+Richards=function(ti,pars) {
+den=(1+10^(pars[3]*(exp(pars[4])-ti)))^exp(pars[5])
+exp(pars[1])+(exp(pars[2]))/den}     
 
-mirrorRichards <- function(ti,pars) {
-    peak <- exp(ifelse(ti<0,pars[4],pars[6]))
-    symm <- exp(ifelse(ti<0,pars[5],pars[7]))
-    hill <- ifelse(ti<0,pars[3],pars[8])
-    den <- (1+10^(hill*((peak-abs(ti)))))^symm
-    return(exp(pars[1])+exp(pars[2])/den)
+mirrorRichards=function(ti,pars) {
+peak=exp(ifelse(ti<0,pars[4],pars[6]))
+symm=exp(ifelse(ti<0,pars[5],pars[7]))
+hill=ifelse(ti<0,pars[3],pars[8])
+den=(1+10^(hill*((peak-abs(ti)))))^symm
+exp(pars[1])+exp(pars[2])/den
 }
 
-growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,monotone=TRUE, run = 500) {
+growthGLM=function(count,ti,timax=NA,family="Poisson",maxiter=1e4,runs=250,monotone=TRUE,weight=1) {
 
     if(is.na(timax)) {timax=max(ti)}
     if(!monotone) {
@@ -40,12 +40,12 @@ growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,monotone=TR
 
     likPois=function(pars,ti,count) {
         linPred=lp(ti,pars)
-        -sum(dpois(count,linPred,log=T))
+        -sum(weight*dpois(count,linPred,log=T))
     }
 
     likNB=function(pars,ti,count) {
         linPred=lp(ti,pars)
-        -sum(dnbinom(count,size=exp(pars[length(pars)]),mu=linPred,log=T))
+        -sum(weight*dnbinom(count,size=exp(pars[length(pars)]),mu=linPred,log=T))
 }
 
     if(family=="nb") {lik=likNB}
@@ -54,30 +54,26 @@ growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,monotone=TR
     
     inits2=optim(inits,function(x) lik(x,ti=ti,count=count),method="BFGS")$par
     
-    rg <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),
-             upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE,
-             suggestions=rbind(inits,inits2), run = run)
+    rg=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),upper=rep(20,length(inits)),maxiter=maxiter/2,run=runs,optim=TRUE,suggestions=rbind(inits,inits2))
     
-    rg2 <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),
-              upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE, run = run)
+    rg2=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE,run=runs)
     
-    rg <- ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(min(rg@solution)*1.5,length(inits)),
-             upper=rep(max(rg@solution)*1.5,length(inits)),maxiter=maxiter,optim=TRUE,
-             suggestions=rbind(rg@solution,rg2@solution),optimArgs=list(control=list(maxit=1000)), run = run)
+    rg=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(min(rg@solution)*1.5,length(inits)),upper=rep(max(rg@solution)*1.5,length(inits)),maxiter=maxiter,optim=TRUE,suggestions=rbind(rg@solution,rg2@solution),optimArgs=list(control=list(maxit=1000)),run=runs)
 
     pars=rg@solution[1,]
 
-    op=optim(pars,function(x) lik(x,ti=ti,count=count),hessian=TRUE,method="BFGS")
+    hess=hessian(function(x) lik(x,ti=ti,count=count), pars)
 
-    convergence <- is.positive.definite(op$hessian)
-    se <- rep(NA,length(pars))
+    convergence=is.positive.definite(hess)
+    if(!convergence) {hess=make.positive.definite(hess)}
+    se=rep(NA,length(pars))
     if(!convergence) {warning("Information matrix is not positive definite, possible local optimum")}
-    if(convergence) {se <- sqrt(diag(solve(op$hessian)))}
-    ti <- c(ti,(max(ti)+1):timax)
+    se=sqrt(diag(solve(hess)))
+    ti=c(ti,(max(ti)+1):timax)
     
-    linPred <- lp(ti,pars)
+    linPred=lp(ti,pars)
 
-    return(list(linPred=linPred,pars=pars,lik=rg@fitnessValue,R2=cor(count,linPred[1:length(count)])^2,se=se,op=op,rg=rg))}
+    return(list(linPred=linPred,pars=pars,lik=rg@fitnessValue,R2=cor(count,linPred[1:length(count)])^2,se=se,hessian=hess,rg=rg))}
 
 
 

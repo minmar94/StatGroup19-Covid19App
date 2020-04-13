@@ -17,11 +17,11 @@ StatGroup-19 è un gruppo di ricerca scientifca che nasce in una forma del tutto
 
 <table float="center" width="75%" border="0">
   <tr>    
-  <td><img src="www/FabioDivino.jpg" alt="" align="center" width="90" height="110" /></td>
-  <td><img src="www/AlessioFa.jpg" alt="" align="center" width="135" height="110" /></td>
-  <td><img src="www/giovannajona.jpg" alt="" align="center" width="115" height="110"/></td>
-  <td><img src="www/GianfrancoLovison.jpg" alt="" align="center" width="105" height="110"/></td>
-  <td><img src="www/AntonelloMaruotti.jpg" alt="" align="center" width="105" height="110"/></td>
+  <td><img src="www/FabioDivino.jpg" alt="" align="center" width="100" height="125" /></td>
+  <td><img src="www/AlessioFa.jpg" alt="" align="center" width="153" height="125" /></td>
+  <td><img src="www/giovannajona.jpg" alt="" align="center" width="131" height="125"/></td>
+  <td><img src="www/GianfrancoLovison.jpg" alt="" align="center" width="120" height="125"/></td>
+  <td><img src="www/AntonelloMaruotti.jpg" alt="" align="center" width="120" height="125"/></td>
   </tr>
 </table>
 
@@ -55,6 +55,6 @@ Tutti i codici utilizzati utilizzati sono disponibili al seguente [link](https:/
 ***
 <h4><b>Sviluppatore</b></h4>
 
-<img src="www/MarcoMe.jpg" alt="" width="110" height="110" />
+<img src="www/BuonaMe1.jpg" alt="" width="100" height="140" />
 <br>
 Questa applicazione è sviluppata da Marco Mingione, dottorando presso il Dipartimento di Scienze Statistiche dell'Università di Roma - La Sapienza   (marco.mingione@uniroma1.it). 

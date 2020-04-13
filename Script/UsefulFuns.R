@@ -126,13 +126,15 @@ prepdata_for_model <- function(dftoprep, resdata){
   # Creo il dataset di input
   da <- data.frame(ag %>% 
                      # Lascio da parte le variabili per cui non faccio il modello
-                     dplyr::select(-data, -denominazione_regione, -Tamponi, -`Variazione totale positivi`, -`Dismessi/Guariti`, -`Nuovi positivi`),
+                     dplyr::select(-data, -denominazione_regione, -Tamponi),
                    ti=as.numeric(ti), ti_orig = ti_orig,
                    region=fa2, 
                    residents=resdata[ma,2])
   
-  colnames(da) <- c("Deceduti", "Isolamento domiciliare", "Ricoverati con sintomi", 
-                    "Terapia intensiva", "Totale casi", "Totale ricoverati",  "Totale positivi", "ti", "ti_orig", "region", "residents")
+  colnames(da) <- c("Deceduti", "Dismessi/Guariti", "Isolamento domiciliare", 
+                    "Nuovi positivi", "Ricoverati con sintomi", "Terapia intensiva", 
+                    "Totale casi", "Totale ricoverati",  "Totale positivi", 
+                    "Variazione totale positivi","ti", "ti_orig", "region", "residents")
   
   return(da)
 }
@@ -145,8 +147,7 @@ run_growth_model <- function(da, reg=NULL, wh="Totale casi", horizon = 10, fam="
   
   if(is.null(reg)){
     dat <- aggregate(da %>% dplyr::select(-region, -ti, -residents, -ti_orig), list(da$ti), sum)
-    colnames(dat) <- c("ti", "Deceduti", "Isolamento domiciliare", "Ricoverati con sintomi", 
-                       "Terapia intensiva", "Totale casi", "Totale ricoverati",  "Totale positivi")
+    colnames(dat)[1] <- "ti"
     
   }else{
     dat <- da[da$region==reg,]
@@ -168,27 +169,30 @@ run_growth_model <- function(da, reg=NULL, wh="Totale casi", horizon = 10, fam="
   
   mti <- max(ti)        
   timax <- mti+horizon
-  mnt <- ifelse(any(diff(pc)<0), F, T)
-  np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 5000, monotone = mnt, run = 100)
+  diffpc <- diff(pc)
+  mnt <- ifelse(any(diffpc[(length(diffpc)-3):length(diffpc)]<0), F, T)
+  np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 10000, monotone = mnt, runs = 250)
   
-  if(any(is.na(np$se))){
-    np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 10000, monotone = mnt, run = 500)
+  if(!mnt){
+    np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 10000, monotone = mnt, runs = 500)
   }
-  
-  if(any(is.na(np$se))){
-    np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 15000, monotone = mnt, run = 1000)
-  }
+  # 
+  # if(any(is.na(np$se))){
+  #   np <- growthGLM(count = pc, ti = ti, timax = timax, family = fam, maxiter = 15000, monotone = mnt, runs = 1000)
+  # }
   
   # Prediction dei cumulati
   y <- np$linPred
   # Creo tempi fittizi numerici
   x <- seq(min(ti_orig_out), max(ti_orig_out) + horizon, 1)
   x1 <- c(ti_orig_out[2:mti], rep(NA, horizon)) 
-  pc_out_diff <- c(diff(pc), rep(NA, horizon))
+  
+  pc_out <- c(diff(pc), rep(NA, horizon))
+  
   # Data frame con osservati e predetti nuovi 
   cc1<-data.frame(x1 = x1,
                   # Creo gli osservati facendo le differenze prime dei cumulati
-                  pc = pc_out_diff, 
+                  pc = pc_out, 
                   x = x[-1], y = diff(y))
   
   # Data frame con osservati e predetti cumulati
@@ -205,11 +209,11 @@ plot_out_model <- function(outputmod, hz, what = "Cumulati"){
   
   if(what == "Cumulati"){
     dd <- outputmod$cc
-    ylabel <- "Casi cumulati"
+    ylabel <- "Totali giornalieri"
   } 
   if(what == "Nuovi"){
     dd <- outputmod$cc1
-    ylabel <- "Nuovi casi"
+    ylabel <- "Variazioni giornaliere"
   } 
   
   pp <- ggplot(dd %>% 
@@ -233,8 +237,8 @@ DT_out_model <- function(outputmod, hz) {
     thead(
       tr(
         th(rowspan = 2, 'Data'),
-        th(colspan = 2, 'Cumulati'),
-        th(colspan = 2, 'Nuovi')
+        th(colspan = 2, 'Totali'),
+        th(colspan = 2, 'Variazioni')
       ),
       tr(
         lapply(rep(c('Osservati', 'Predetti'), 2), th)
@@ -242,9 +246,9 @@ DT_out_model <- function(outputmod, hz) {
     )
   ))
   
-  ddt <- bind_cols(outputmod$cc %>% set_colnames(value = c("Data", "Cumulati.Osservati", "Data2", "Cumulati.Predetti")),
+  ddt <- bind_cols(outputmod$cc %>% set_colnames(value = c("Data", "Totali.Osservati", "Data2", "Totali.Predetti")),
                    outputmod$cc1 %>% add_row(data.frame(x1=outputmod$cc[1,1], pc=NA, x=outputmod$cc[1,1], y=NA), .before = T) %>%  
-                     set_colnames(value = c("Data", "Nuovi.Osservati", "Data2", "Nuovi.Predetti")) %>% 
+                     set_colnames(value = c("Data", "Variazioni.Osservati", "Data2", "Variazioni.Predetti")) %>% 
                      dplyr::select(-Data, -Data2)) %>% 
     filter(between(Data2, max(Data, na.rm = T) -2, max(Data, na.rm = T) + hz)) %>% 
     dplyr::select(-Data) %>% 
@@ -261,41 +265,230 @@ DT_out_model <- function(outputmod, hz) {
 }
 
 # print summary model (return html code)
-summary_out_model <- function(outputmod){
+summary_out_model <- function(outputmod, varest){
   
   omod <- outputmod$cc1
   ti_orig_out <- c(outputmod$cc1$x1[1]-1, outputmod$cc1$x1 %>% na.omit())
   
   # Picco stimato
-  l_pck <- min(ti_orig_out) + round(exp(outputmod$pars[4]-1.96*outputmod$stderrs[4]))
-  u_pck <- min(ti_orig_out) + round(exp(outputmod$pars[4]+1.96*outputmod$stderrs[4]))
-  est_pick <- min(ti_orig_out) + round(exp(outputmod$pars[4]))
+  l_pck <- round(min(ti_orig_out) + exp(outputmod$pars[4]-1.96*outputmod$stderrs[4]))
+  u_pck <- round(min(ti_orig_out) + exp(outputmod$pars[4]+1.96*outputmod$stderrs[4]))
+  est_pick <- round(min(ti_orig_out) + exp(outputmod$pars[4]))
   # Valore stimato nel giorno del picco
   estmax_val <- round(omod$y[omod$x==est_pick])
   # Se picco già avvenuto, metti valore osservato
   obsmax_val <- ifelse(est_pick<=max(omod$x1, na.rm=T), round(omod$pc[omod$x==est_pick]), NA)
   
-  # Asintoto cumulati
-  asi_est_l <- round(exp(outputmod$pars[1]-1.96*outputmod$stderrs[1])+exp(outputmod$pars[2]-1.96*outputmod$stderrs[2])) 
-  asi_est_u <- round(exp(outputmod$pars[1]+1.96*outputmod$stderrs[2])+exp(outputmod$pars[2]+1.96*outputmod$stderrs[2])) 
-  asi_est <- round(exp(outputmod$pars[1])+exp(outputmod$pars[2])) 
-  
   pdate_l <- paste0(day(l_pck), " ", stri_trans_totitle(month(l_pck, label = T, abbr = F)), " ",  year(l_pck))
   pdate <- paste0(day(est_pick), " ", stri_trans_totitle(month(est_pick, label = T, abbr = F)), " ",  year(est_pick))
   pdate_u <- paste0(day(u_pck), " ", stri_trans_totitle(month(u_pck, label = T, abbr = F)), " ",  year(u_pck))
   
-  out_string <- paste0(
-    "<ul>",
-    "<li><b>Picco della curva stimato: </b>", pdate, paste0(" (non prima del ", pdate_l, ", non dopo il ", pdate_u, ")"), "</li>",
-    "<li><b>Massimo stimato di casi giornalieri: </b>", estmax_val, ifelse(!is.na(obsmax_val), paste0(" (osservati ", obsmax_val, ")"), ""),"</li>",
-    "<li><b>Asintoto stimato casi cumulati: </b>", asi_est, paste0(" (non meno di ", asi_est_l, ", non piu' di ", asi_est_u, ")"),"</li>", 
-    "<li><b>Goodness of fit</b> (R2): ", outputmod$R2, "</li>",
-    "</ul>",
-    collapse = ""
-  )
+  if(varest %in% c("Dismessi/Guariti", "Deceduti", "Totale casi")){
+      
+    # Asintoto cumulati
+    asi_est_l <- round(exp(outputmod$pars[1]-1.96*outputmod$stderrs[1])+exp(outputmod$pars[2]-1.96*outputmod$stderrs[2])) 
+    asi_est_u <- round(exp(outputmod$pars[1]+1.96*outputmod$stderrs[1])+exp(outputmod$pars[2]+1.96*outputmod$stderrs[2])) 
+    asi_est <- round(exp(outputmod$pars[1])+exp(outputmod$pars[2])) 
+    
+    out_string <- paste0(
+      "<ul>",
+      "<li><b>Picco della curva stimato: </b>", pdate, paste0(" (non prima del ", pdate_l, ", non dopo il ", pdate_u, ")"), "</li>",
+      "<li><b>Massimo stimato di casi giornalieri: </b>", estmax_val, ifelse(!is.na(obsmax_val), paste0(" (osservati ", obsmax_val, ")"), ""),"</li>",
+      "<li><b>Asintoto stimato casi cumulati: </b>", asi_est, paste0(" (non meno di ", asi_est_l, ", non piu' di ", asi_est_u, ")"),"</li>", 
+      "<li><b>Goodness of fit</b> (R2): ", outputmod$R2, "</li>",
+      "</ul>",
+      collapse = ""
+    )
+  } else{
+    out_string <- paste0(
+      "<ul>",
+      "<li><b>Picco della curva stimato: </b>", pdate, paste0(" (non prima del ", pdate_l, ", non dopo il ", pdate_u, ")"), "</li>",
+      "<li><b>Massimo stimato di casi giornalieri: </b>", estmax_val, ifelse(!is.na(obsmax_val), paste0(" (osservati ", obsmax_val, ")"), ""),"</li>",
+      #"<li><b>Asintoto stimato casi cumulati: </b>", asi_est, paste0(" (non meno di ", asi_est_l, ", non piu' di ", asi_est_u, ")"),"</li>", 
+      "<li><b>Goodness of fit</b> (R2): ", outputmod$R2, "</li>",
+      "</ul>",
+      collapse = ""
+    )
+    
+  }
   
   return(out_string)
 }
+
+
+# Prepare data per modello terapie intensive a parte
+dataprep_terapie <- function(dftoprep, resdata){
+  
+  ag <- dftoprep
+  
+  # Converto in fattore i tempi
+  fa <- factor(ag$data)
+  # Converto in fattore la regione
+  fa2 <- factor(ag$denominazione_regione)
+  # Mi tengo i tempi come numerici
+  ti <- unclass(fa)
+  # I tempi originali
+  ti_orig <- date(attr(ti, "levels"))
+  
+  icu <- dftoprep$`Terapia intensiva`
+  
+  # Aggiusto le etichette
+  levels(fa2)[5] <- "Emilia Romagna"
+  levels(fa2)[6] <- "Friuli V. G."
+  levels(fa2)[17] <- "TrentinoAltoAdige"
+  
+  # Tengo solo i residenti delle regioni che matchano l'etichetta delle regioni
+  ma <- match(resdata[,1],levels(fa2))
+  residents <- resdata[which(!is.na(ma)),]
+  # Prendo le etichette della regioni che ora matchano i residenti
+  ma <- match(fa2,resdata[,1])
+  
+  # converto in carattere
+  fa2 <- as.character(fa2)
+  
+  da <- data.frame(icu = icu, ti = as.numeric(ti), region=fa2, residents=resdata[ma,2])
+  
+  da$region <- factor(as.character(da$region))
+  
+  mx <- max(da$ti)-15
+  #mx_orig <- max(ti_orig)-15
+  da <- da[da$ti>mx,]
+  da$ti <- da$ti-mx
+  #da$ti_orig <- ti_orig-mx
+  
+  da.pred <- da[which(da$ti==max(da$ti)),]
+  da.pred$ti <- max(da$ti)+1
+  da <- da[order(da$region,da$ti),]
+  da.pred <- da.pred[order(da.pred$region),]
+
+  #da.pred$capienza=c(115,49,107,506,539,127,557,186,1200,154,31,560,289,123,392,745,115,70,12,600)
+  # Aggiornamento capienza
+  da.pred$capienza <- c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338))
+  da$capienza <- rep(da.pred$capienza,each=max(da$ti))
+  
+  
+  return(list(da = da, dapred = da.pred))
+}
+
+
+fup <- function(dat){
+  y <- dat$icu
+  x <- cbind(dat$ti,dat$ti^2/100,dat$ti^3/250)
+  tsw3 <- tsglm(y,xreg=x[,1:3],link="log",dist="poisson")
+  tsw2 <- tsglm(y,xreg=x[,1:2],link="log",dist="poisson")
+  tsw1 <- tsglm(y,xreg=x[,1],link="log",dist="poisson")
+  tsw <- tsglm(y,link="log",dist="poisson")
+  newx <- NULL
+  if(BIC(tsw)>BIC(tsw1)){
+    tsw <- tsw1; newx=data.frame(ti=max(x[,1])+1)
+  }
+  if(BIC(tsw)>BIC(tsw2)){
+    tsw <- tsw2
+    newx <- data.frame(ti=max(x[,1])+1,ti2=(max(x[,1])+1)^2/100)
+  }
+  if(BIC(tsw)>BIC(tsw3)){
+    tsw <- tsw3
+    mx <- max(x[,1])+1
+    newx <- data.frame(ti=mx,ti2=mx^2/100,ti3=mx^3/250)
+  }
+  
+  pr <- predict(tsw, newxreg=newx,level=1-0.01)
+  
+  outvec <- c(pr$pred,pr$interval)
+  names(outvec) <- c("est", "lb", "ub")
+  return(outvec)
+}
+
+modello_terapia_intensiva <- function(dat, dattopred){
+  
+  fit2 <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=dat,family=poisson)
+  pr2 <- exp(predict(fit2,dattopred))
+  
+  ba <- dat %>% group_split(region) %>% sapply(FUN = fup, simplify = T) %>% t
+  
+  # optW (unique)
+  
+  d2 <- dat[dat$ti<max(dat$ti),]
+  fit.loss <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=d2,family=poisson)
+  pr.loss <- exp(predict(fit.loss,d2))
+  ba.loss <- d2 %>% group_split(region) %>% sapply(FUN = fup, simplify = T) %>% t
+  
+  do <- function(x,b,l,da){
+    w <- exp(x)/(1+exp(x))
+    abs(b*w+l*(1-w)-da$icu)^2
+  }
+  
+  optW <- rep(NA,nrow(dattopred))
+  for(j in 1:length(optW)) {
+    op <- optimize(function(x) do(x ,ba.loss[,1],pr.loss,d2)[j],c(-15,15))
+    optW[j] <- exp(op$min)/(1+exp(op$min))
+  }
+  
+  jnk <- list(preds=round(pr2*(1-optW)+ba[,1]*optW),tsci=ba[,-1],optW=optW)
+  
+  pred <- data.frame(region=levels(dat$region),prediction=jnk$preds)
+  
+  cl <- makeCluster(3, type = "SOCK")
+  registerDoSNOW(cl)
+  
+  res2 <- matrix(NA, nrow = 500, ncol = nrow(dattopred))
+  res2 <- foreach(j = 1:500, .packages = "lme4", .combine = "rbind")  %dopar% {
+    ws <- sample(nrow(dat),nrow(dat),replace=TRUE)
+    daws <- dat[ws,]
+    fit2 <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=daws,family=poisson)
+    pr2 <- exp(predict(fit2,dattopred))
+    return(pr2)
+  }
+  
+  stopCluster(cl)
+  
+  qu12 <- apply(res2, 2, quantile, probs = c(0.01/2, 1-0.01/2), na.rm=TRUE)
+  pred$prLow.Bonf <- apply(cbind(round(qu12[1,]),jnk$tsci[,1]),1,min)
+  pred$prUp.Bonf <- apply(cbind(round(qu12[2,]),jnk$tsci[,2]),1,max)
+  pred$prUp.Bonf <- pmin(pred$prUp.Bonf,dattopred$capienza)
+  pr.oggi <- pred
+  pr.oggi$capienza <- dattopred$capienza 
+  
+  colnames(pr.oggi) <- c("Regione", "Previsione", "Limite Inferiore", "Limite Superiore", "Capienza")
+  
+  return(pr.oggi)
+  
+}
+
+
+# dcat <- list("Northern Italy" = c("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta",
+#                                      "Emilia-Romagna", "Friuli Venezia Giulia", "Veneto", "Trentino-Alto Adige"),
+#              "Central Italy" = c("Lazio", "Marche", "Toscana", "Umbria"),
+#              "Sourhern Italy" = c("Abruzzo", "Basilicata", "Calabria",
+#                                      "Campania", "Molise", "Puglia"),
+#              "Insular" = c("Sardegna", "Sicilia")) %>%
+#   unlist(use.names = T)
+# 
+# 
+# dcat <- data.frame(cbind(Macro = gsub("[[:digit:]]","",names(dcat)), denominazione_regione = as.character(dcat)))
+# 
+# dati_reg$Key <- factor(dati_reg$Key, levels = c("Deceduti", "Dismessi/Guariti", "Nuovi positivi",
+#                                                 "Ricoverati con sintomi", "Terapia intensiva", "Isolamento domiciliare",
+#                                                 "Totale ricoverati", "Totale positivi",  "Totale casi",
+#                                                 "Variazione totale positivi", "Tamponi"))
+# hm <- dati_reg %>%
+#   #left_join(dcat, by = "denominazione_regione") %>%
+#   group_by(denominazione_regione, Key) %>%
+#   mutate(Value = Value/max(Value)) %>%
+#   #mutate(Value = log1p(Value)) %>%
+#   filter(!(Key %in% c("Variazione totale positivi","Tamponi"))) %>%
+#   ggplot(aes(x = data, y = denominazione_regione, fill = Value)) + geom_raster() + scale_fill_distiller(direction = 1, palette = "YlOrRd") +
+#   scale_x_date(expand = c(0,0), date_labels = "%d/%m", date_breaks = "7 days") +
+#   scale_y_discrete(expand = c(0,0), limits = rev(dcat$denominazione_regione)) +
+#   #geom_vline(xintercept = date("2020-03-08")) +
+#   facet_wrap(~Key) +
+#   labs(x = "", y = "", fill = "") +
+#   theme_minimal() +
+#   theme(axis.text.y = element_text(size = 10), legend.position = "bottom") 
+#   
+# ggplotly(hm)
+
+
 
 
 # Build map default
