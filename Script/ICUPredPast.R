@@ -43,7 +43,7 @@ dataprep_terapie <- function(dftoprep, resdata){
                                           ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.", denominazione_regione))) %>% 
     arrange(denominazione_regione, data)
   
-    
+  
   # icu <- dftoprep$`Terapia intensiva`
   # # Converto in fattore i tempi
   # fa <- factor(ag$data)
@@ -64,7 +64,7 @@ dataprep_terapie <- function(dftoprep, resdata){
   # residents <- resdata[which(!is.na(ma)),]
   # # Prendo le etichette della regioni che ora matchano i residenti
   # ma <- match(fa2,residents[,1])
-    
+  
   
   # converto in carattere
   #fa2 <- as.character(fa2)
@@ -74,7 +74,7 @@ dataprep_terapie <- function(dftoprep, resdata){
   #da$region <- factor(as.character(da$region))
   
   
-  da <- ag %>% select(data, denominazione_regione, `Terapia intensiva`) %>% 
+  da <- ag %>% dplyr::select(data, denominazione_regione, `Terapia intensiva`) %>% 
     left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
     mutate(data = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
     rename(ti = data, region = denominazione_regione, icu = `Terapia intensiva`, residents = totale) 
@@ -167,7 +167,7 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
     pr2 <- exp(predict(fit2,dattopred))
     return(pr2)
   }
-
+  
   stopCluster(cl)
   
   qu12 <- apply(res2, 2, quantile, probs = c(0.01/2, 1-0.01/2), na.rm=TRUE)
@@ -183,11 +183,7 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   
 }
 
-load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/PastICUPred.RData")
 load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/ResICU.RData")
-#outmod_terapie_plot <-  outmod_terapie_tab
-
-#source("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/UsefulFuns.R")
 
 # Read regional data up to today
 dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv")
@@ -195,11 +191,30 @@ dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVI
 # Leggo dati residenti
 residents[,1] <- as.character(residents[,1])
 
-# Modello terapia intensiva
-icu_data <- dataprep_terapie(dftoprep = dati_reg %>% spread(Key, Value), resdata = residents)
+df <- dati_reg %>% spread(Key, Value)
 
-outmod_terapie_tomor <- modello_terapia_intensiva(dat = icu_data$da, dattopred = icu_data$dapred)
+# Run Model daily starting 16 after the 24th of February ------------------
+dates <- unique(dati_reg$data)
+est_dates <- dates[dates > min(dates)+15]
 
-outmod_terapie_tab %<>% bind_rows(outmod_terapie_tomor %>% mutate(DataPred = max(outmod_terapie_tab$DataPred)+1))
+outmod_terapie_tab <- list()
+cnt <- 1
+for(dd in est_dates){
+  
+  print(est_dates[cnt])
+  df1 <- df %>% filter(data <= dd)
+  
+  icu_data <- dataprep_terapie(dftoprep = df1, resdata = residents)
+  outmod_terapie_tab[[cnt]] <- modello_terapia_intensiva(dat = icu_data$da, dattopred = icu_data$dapred) %>% 
+    as_tibble() %>% 
+    mutate(DataPred = dd + 1)
+  
+  cnt = cnt + 1
+  
+}
 
-save(outmod_terapie_tab, file = "C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/PastICUPred.RData")
+outmod_terapie_tab %<>% 
+  map2_dfr(as.list(est_dates), function(x, y) x %<>% mutate(DataPred = y + 1))
+
+save(outmod_terapie_tab, file = "Data/ICU/PastICUPred.RData")
+

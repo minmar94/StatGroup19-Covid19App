@@ -26,7 +26,8 @@ rm(list=ls())
 
 source("Script/_growthGLM.r")
 source("Script/UsefulFuns.R")
-load("Data/ICU/ICUOutput.RData")
+#load("Data/ICU/ICUOutput.RData")
+load("Data/ICU/PastICUPred.RData")
 
 # Read aggregated Italian data up to today 
 dati_Ita <- read_italian(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv")
@@ -59,20 +60,38 @@ joined_prov <- italy_sf_prov %>% sp::merge(dati_prov %>% dplyr::select(data, den
 # Leggo dati residenti
 residents <- read.csv("Data/residenti2019.csv",header=TRUE,sep=",")
 residents[,1] <- as.character(residents[,1])
-residents[10,1] <- "Valle d'Aosta"
+
+letalita_reg <- dati_reg %>% spread(Key, Value) %>% dplyr::select(data, denominazione_regione, Deceduti, `Totale casi`) %>%
+  filter(`Totale casi`>0) %>% 
+  group_by(denominazione_regione) %>% 
+  summarise(Totdec = sum(Deceduti),
+            Totcasi = sum(`Totale casi`),
+            letalita = Totdec/Totcasi)
+
 
 # Data preparation for the model
-data_formodel_prep <- prepdata_for_model(dftoprep = dati_reg %>% spread(Key, Value) %>% arrange(denominazione_regione), resdata = residents)
+data_formodel_prep <- prepdata_for_model(dftoprep = dati_reg %>% spread(Key, Value), resdata = residents)
+
+mortalita_reg <- data_formodel_prep %>% 
+  dplyr::select(ti_orig, region, Deceduti, residents) %>% 
+  group_by(region) %>% 
+  summarise(Totdec = sum(Deceduti),
+            Totres = residents[1],
+            mortalita = Totdec/Totres)
 
 
-# Creo mappa di default
-#basemap <- plot_leaflet_map(df = joined_reg, variable = "Nuovi positivi", datetoselect = today)
 
+
+datasuTabella <- max(outmod_terapie_tab$DataPred)
+outmod_terapie_plot <- outmod_terapie_tab %>% filter(DataPred < datasuTabella)
+outmod_terapie_table <- outmod_terapie_tab %>% filter(DataPred == max(DataPred))
+
+# ShinyApp ----------------------------------------------------------------
 ui <- navbarPage(theme = shinytheme("united"),
                  title = "Analisi dell'epidemia di CoviD-19 in Italia",
                  
                  # Primo pannello: Overview
-                 tabPanel(title = "Overview",
+                 tabPanel(title = "Panoramica",
                           
                           div(style="margin-top:-3.5em",
                               
@@ -125,7 +144,7 @@ ui <- navbarPage(theme = shinytheme("united"),
                               column(6, tags$strong("Cos'è la COVID-19?"), textOutput(outputId = "COV19"), style="text-align:justify"),
                               column(6, tags$strong("Vocabulary"), htmlOutput(outputId = "Defins"), style="text-align:justify")
                             ))),
-                 tabPanel("Modeling", 
+                 tabPanel("Modello", 
                           fluidPage(
                             
                             
@@ -144,10 +163,14 @@ ui <- navbarPage(theme = shinytheme("united"),
                                                label = "Modello a livello regione", 
                                                value = F, status = "danger"),
                                 uiOutput(outputId = "SelRegModel"),
+                                actionBttn(inputId = "updatemodel", label = "Run the model", style = "jelly", color = "danger"),
+                                helpText("Cliccare per stimare il modello e attendere qualche secondo che raggiunga la convergenza"),
                                 
-                                helpText("Attendere qualche secondo che il modello raggiunga la convergenza"),
+                                helpText(tags$h5("Utilizzare sempre (se si vuole), tranne se la variabile selezionata per il modello è 'Deceduti' o 'Totale casi'")),
+                                checkboxInput(inputId = "AddReducedMirrored", label = "Confronta con Mirrored Richards Ridotta", value = F),
                                 uiOutput(outputId = "SelDateModel"), 
                                 helpText("Scorrere per vedere come cambia la curva di previsione"),
+                                tags$br(),
                                 htmlOutput("SummaryModel")
                               ),
                               
@@ -169,20 +192,34 @@ ui <- navbarPage(theme = shinytheme("united"),
                             
                           )
                  ),
-                 tabPanel("Terapie intensive", 
+                 tabPanel("Previsione terapie intensive", 
                           fluidPage(
                             tags$h2(tags$strong(paste("Previsione* ricoveri in terapia intensiva per il giorno ", 
-                                                      day(max(dati_reg$data)+1), 
-                                                      stri_trans_totitle(month(max(dati_reg$data)+1, label = T, abbr = F)), 
-                                                      year(max(dati_reg$data)+1)))),
+                                                      day(datasuTabella), 
+                                                      stri_trans_totitle(month(datasuTabella, label = T, abbr = F)), 
+                                                      year(datasuTabella)))),
                             tags$h5("*per maggiori dettagli sulla metodologia si rimanda al seguente ", 
                                     tags$a(href = "http://afarcome.altervista.org/ICU.predictions.pdf" , "link")), 
+                            fluidRow(DTOutput("ICuTab"), 
+                                     helpText("Cliccare su 'Download' per scaricare la tabella con le previsioni per domani"),
+                                     downloadButton(outputId = "DownICUTomorrow", label = "Download")),
+                            tags$hr(),
                             fluidRow(
-                              DTOutput("ICuTab"),
-                              plotlyOutput("BarplotIcu")
-                            )
+                              sidebarLayout(
+                                sidebarPanel(
+                                  
+                                  helpText(tags$h4(tags$strong("Confronto previsioni con valori reali nella data selezionata*")),
+                                           tags$h5("Prima data disponibile: 17 Marzo 2020")),
+                                  dateInput(inputId = "ICubarDate", label = "Seleziona un giorno", value = datasuTabella-1,
+                                            min = "2020-03-17", max = datasuTabella-1, width = "250px"),
+                                  uiOutput("CovICUModel"),
+                                  helpText("Cliccare su 'Download' per scaricare la tabella con le previsioni della data selezionata"),
+                                  downloadButton(outputId = "DownICUWhatever", label = "Download")
+                                  #plotOutput("HistICU")
+                                ), 
+                              mainPanel(plotlyOutput("BarplotIcu"))))
                           )),
-                 tabPanel("Credits", div(style="margin-top:-2.5em", includeMarkdown("InfoandCredits.md")))
+                 tabPanel("Info", div(style="margin-top:-2.5em", includeMarkdown("InfoandCredits.md")))
                  
 )
 
@@ -200,7 +237,9 @@ server <- function(input, output){
   <li><b>Nuovi attualmente positivi =</b> totale attualmente positivi del giorno corrente - totale attualmente positivi del giorno precedente</li>
   <li><b>Nuovi positivi =</b> totale casi giorno corrente - totale casi giorno precedente</li>
   <li><b>Totale casi =</b> totale attualmente positivi + totale deceduti + totale guariti</li>
-  <li><b>Totale ricoverati =</b> ricoverati con sintomi + terapia intensiva</li></ul>"))
+  <li><b>Totale ricoverati =</b> ricoverati con sintomi + terapia intensiva</li>
+  <li><b>Tasso di mortalità =</b> deceduti/popolazione</li>
+  <li><b>Quoziente di letalità =</b> deceduti/totale casi</li></ul>"))
   
   #
   output$headSummary <- renderUI({HTML(paste0(h2("Situazione italiana relativa all'epidemia CoviD-19 ad oggi*:"),
@@ -237,6 +276,11 @@ server <- function(input, output){
     totale_ricoverati_ultimo <- dat_today$`Totale ricoverati`[2]
     incr_ricoverati <- paste_signpercent(dat_today$`Totale ricoverati`[2], dat_today$`Totale ricoverati`[1])
     
+    
+    quoz_let_ita <- round(sum(letalita_reg$Totdec)/sum(letalita_reg$Totcasi),4)*100
+    
+    tasso_mort_ita <- round(sum(mortalita_reg$Totdec)/sum(mortalita_reg$Totres),4)*100
+    
     HTML(paste0("<ul>",
                 "<li><b>Totale casi: </b>", totale_casi_ultimo, "(",incr_totale_casi,")","</li>",
                 "<li><b>Attualmente positivi: </b>", attualmente_positivi_ultimo,"(",incr_attualmente_positivi,")","</li>",
@@ -246,6 +290,8 @@ server <- function(input, output){
                 "<li><b>Isolamento domiciliare: </b>", isol_domic_ultimo, "(",incr_isolamento,")","</li>",
                 "<li><b>Dimessi/Guariti: </b>", dimessi_guariti_ultimo,"(",incr_guariti,")","</li>",
                 "<li><b>Decessi: </b>", deceduti_ultimo, "(",incr_deceduti,")","</li>",
+                "<li><b>Tasso di mortalità: </b>", tasso_mort_ita, "%","</li>",
+                "<li><b>Quoziente di letalità: </b>", quoz_let_ita, "%","</li>",
                 "</ul>",
                 collapse = ""
     ))
@@ -390,7 +436,7 @@ server <- function(input, output){
       p <- plot_ly(data = joined_prov %>% filter(Key == "Totale casi", data == as.character(datetoselect())), 
                    stroke = I("black"),
                    split = ~NAME, color = ~Value, colors = "YlOrRd", alpha = 1, 
-                   text = ~paste0(NAME_2, " (", NAME, ")", "\n", Value, " people"),
+                   text = ~paste0(NAME_2, " (", NAME, ")", "\n", Value, " persone"),
                    hoveron = "fills",
                    hoverinfo = "text", 
                    showlegend = F) %>%
@@ -404,15 +450,26 @@ server <- function(input, output){
   
   
   # Modello per Italia
-  outputModello <- reactive({
+  outputModello <- eventReactive( input$updatemodel, {
     
     if(input$ModRegioneSiNo){
       return(
-        suppressWarnings(run_growth_model(da = data_formodel_prep, reg = input$SelRegModel, wh = input$VarForModel, horizon = 30, fam = "Poisson"))
+        tryCatch(
+          suppressWarnings(run_growth_model(da = data_formodel_prep, reg = input$SelRegModel, wh = input$VarForModel, horizon = 30, fam = "Poisson")),
+          error = function(e){
+            return("IL MODELLO NON HA RAGGIUNTO LA CONVERGENZA!")
+            
+          } 
+        )
       )
     }else{
       return(
-        suppressWarnings(run_growth_model(da = data_formodel_prep, reg = NULL, wh = input$VarForModel, horizon = 30, fam = "Poisson"))
+        tryCatch(
+          suppressWarnings(run_growth_model(da = data_formodel_prep, reg = NULL, wh = input$VarForModel, horizon = 30, fam = "Poisson")),
+          error = function(e){
+            return("IL MODELLO NON HA RAGGIUNTO LA CONVERGENZA!")
+          } 
+        )
       )
     }
     
@@ -422,31 +479,42 @@ server <- function(input, output){
   # Summary Italia
   output$SummaryModel <- reactive({
     
-    summary_out_model(outputModello(), varest = input$VarForModel)
+    if(!is.character(outputModello())){
+      if(input$ModRegioneSiNo){
+        return(
+          summary_out_model(outputModello(), varest = input$VarForModel, resdata = residents, reg = input$SelRegModel, is.reg = T)
+        )
+      }else{
+        summary_out_model(outputModello(), varest = input$VarForModel, resdata = residents)
+      }
+      
+    }else{
+      return(HTML(outputModello()))
+    }
+    
     
   })
   
   # Plot nuovi cumulati Italia
   output$PredCumCases <- renderPlotly({
     
-    plot_mod1 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Cumulati")
+    plot_mod1 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Cumulati", VarModel = input$VarForModel, addReduMirr = input$AddReducedMirrored)
     
-    ggplotly(plot_mod1)
+   plot_mod1
     
   })
   
   # Plot nuovi predetti Italia
   output$PredNewCases <- renderPlotly({
     
-    plot_mod2 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Nuovi")
+    plot_mod2 <- plot_out_model(outputmod = outputModello(), hz = input$SelDateModel, what = "Nuovi", VarModel = input$VarForModel, addReduMirr = input$AddReducedMirrored)
     
-    ggplotly(plot_mod2)
-    
+    plot_mod2
   })
   
   output$DatPred <- renderDT({
     
-    DT_out_model(outputmod = outputModello(), hz = input$SelDateModel)
+    DT_out_model(outputmod = outputModello(), hz = input$SelDateModel, VarModel = input$VarForModel)
   })
   
   
@@ -454,30 +522,78 @@ server <- function(input, output){
   
   output$ICuTab <- renderDT({
 
-    outmod_terapie_tab %>%
+    outmod_terapie_table %>% dplyr::select(-DataPred) %>% 
       datatable(rownames = F, options = list(dom = 'tp', pageLength = 10, scrollX = T, 
                                              columnDefs = list(list(className = 'dt-center', targets = "_all"))))
 
   })
   
-  output$BarplotIcu <- renderPlotly({
+  
+  output$DownICUTomorrow <- downloadHandler(
+    filename = function() {
+      paste0("PrevisioneTerapieIntensive_", datasuTabella,".csv")
+    },
+    content = function(file) {
+      write.csv(outmod_terapie_table, file, row.names = FALSE)
+    }
+  )
+  
+  dataICUbar <- reactive({
     
     levels(outmod_terapie_plot$Regione)[5] <- "Emilia-Romagna"
     levels(outmod_terapie_plot$Regione)[6] <- "Friuli Venezia Giulia"
     levels(outmod_terapie_plot$Regione)[17] <- "Trentino-Alto Adige"
     
-    outmod_terapie_plot %>% 
+    dplot <- outmod_terapie_plot %>% 
+      rename(denominazione_regione = Regione, data = DataPred) %>% 
       left_join(dati_reg %>% spread(Key, Value) %>% 
-                  filter(data == max(data)) %>% 
-                  dplyr::select(starts_with("Tera"), denominazione_regione), by = c("Regione"="denominazione_regione")) %>% 
-      plot_ly(x = ~Regione, y = ~`Terapia intensiva`, type = "bar", name = "Osservati", marker = list(color = "firebrick")) %>% 
+                  filter(data <= max(outmod_terapie_plot$DataPred)) %>% 
+                  dplyr::select(data, starts_with("Tera"), denominazione_regione), 
+                by = c("denominazione_regione", "data")) 
+    
+    dplot
+    
+  })
+  
+  output$BarplotIcu <- renderPlotly({
+  
+    dataICUbar() %>% 
+      filter(data == as.character(input$ICubarDate)) %>% 
+      plot_ly(x = ~denominazione_regione, y = ~`Terapia intensiva`, type = "bar", 
+              name = "Osservati", marker = list(color = "firebrick")) %>% 
       add_trace(y = ~Previsione, name = "Previsti", marker = list(color = "darkorange")) %>% 
-      layout(title = "Previsioni di ieri",
+      layout(title = paste("Previsione del ", as.character(input$ICubarDate)),
              xaxis = list(title = ""),
              yaxis = list(title = "Terapie intensive"))
     
   })
   
+  output$CovICUModel <- renderUI({
+    
+    dplot2 <- dataICUbar() %>% filter(data == as.character(input$ICubarDate))
+    quanteIn <- sum(dplot2$`Terapia intensiva` >= dplot2$`Limite Inferiore` & dplot2$`Terapia intensiva` <= dplot2$`Limite Superiore`)
+    
+    capts <- paste("per", quanteIn, "regioni su 20 il valore osservato è contenuto nell'intervallo di previsione.")
+    HTML(paste("In data ", as.character(input$ICubarDate), ", ",capts))
+    
+  })
+  
+  output$DownICUWhatever <- downloadHandler(
+    filename = function() {
+      paste0("PrevisioneTerapieIntensive_", as.character(input$ICubarDate),".csv")
+    },
+    content = function(file) {
+      write.csv(dataICUbar() %>% filter(data == as.character(input$ICubarDate)), file, row.names = FALSE)
+    }
+  )
+  
+  # output$HistICU <- renderPlot({
+  #   
+  #   dataICUbar() %>% 
+  #     group_by(data) %>% 
+  #     summarise(TOTICU = sum(`Terapia intensiva`)) %$% hist(TOTICU) 
+  #   
+  # })
 }
 
 

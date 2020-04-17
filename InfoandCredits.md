@@ -48,7 +48,7 @@ La parte relativa al modello è interamente implementata dal gruppo di ricerca S
 
 ### Com'è fatto
 
-L'applicazione è interamente sviluppata in R, attraverso l'utilizzo della libreria [Shiny](https://rstudio.com/products/shiny/). Altre librerire utilizzate sono: ggplot2 e ggiraph (per la visualizzazione), tidyverse (per la gestione e l'analisi dei dati) e shinyWidgets (per il layout). L'applicazione è attiva e supportata dalla piattaforma gratuita [ShinyApps](https://www.shinyapps.io/).
+L'applicazione è interamente sviluppata in R, attraverso l'utilizzo della libreria [Shiny](https://rstudio.com/products/shiny/). Altre librerire utilizzate sono: plotly e ggiraph (per la visualizzazione), tidyverse (per la gestione e l'analisi dei dati) e shinyWidgets (per il layout). L'applicazione è attiva e supportata dalla piattaforma gratuita [ShinyApps](https://www.shinyapps.io/).
 
 Tutti i codici utilizzati utilizzati sono disponibili al seguente [link](https://github.com/minmar94/StatGroup19).
 
