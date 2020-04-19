@@ -185,10 +185,15 @@ likNB <- function(pars, ti, cc, lp, weight=1)
 
 # Growth GLM --------------------------------------------------------------
 
-growthGLM <- function(count, ti, tiMax=NA, 
+growthGLM <- function(count, ti, tiMax=NA, tPred=NA,
                        family="Poisson", monotone=TRUE, bFix=0, nmirror=5,
-                       maxiter=1e4, runs=500, weight=1) 
+                       maxiter=1e4, runs=500, weight=1)
 {
+  # Findove vogliamo prevedere?
+  if (is.na(tPred))
+  {
+    tPred <- max(ti)
+  }
   
   # Picking the selected Richards and initial values
   if(monotone) 
@@ -351,7 +356,7 @@ growthGLM <- function(count, ti, tiMax=NA,
   se <- sqrt(diag(solve(hess)))
   
   # Linear predictor
-  linPred <- lp(pars, ti)
+  linPred <- lp(pars, min(ti):tPred)
   
   return(list(linPred=linPred, pars=pars, 
               lik=rg@fitnessValue, R2=cor(count, linPred[1:length(count)])^2, 

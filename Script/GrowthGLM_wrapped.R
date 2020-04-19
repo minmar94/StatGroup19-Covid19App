@@ -26,8 +26,8 @@ cumCounts <- dat$cumCounts
 
 # Fitting -----------------------------------------------------------------
 
-oo <- growthGLM(count=cumCounts, ti = ts, monotone = T, family="nb", 
-                nmirror = 5)
+oo <- growthGLM(count=cumCounts, ti = ts, monotone = F, family="Poisson", 
+                nmirror = 5, tPred = 60)
 
 # Fit of the curve on the data --------------------------------------------
 
