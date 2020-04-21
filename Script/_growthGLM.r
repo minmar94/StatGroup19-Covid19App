@@ -36,11 +36,16 @@ growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,runs=250,mo
 
     p2=log(max(count)-min(count))
     if(!monotone) {
-        np=nplr(1:sum(ti<=0),convertToProp(count[which(ti<=0)]),useLog=F)@pars}
+        np=nplr(1:sum(ti<=0),convertToProp(count[which(ti<=0)]),useLog=F, silent = T)@pars}
     if(monotone) {
-        np=nplr(ti,convertToProp(count),useLog=F)@pars}
+        np=nplr(ti,convertToProp(count),useLog=F, silent = T)@pars}
     np=as.vector(unlist(np))
     inits=c(log(min(count)+1),p2,np[4],log(np[3]),log(np[5]))
+    if(any(is.nan(inits))){
+        wnan <- which(is.nan(inits)) 
+        inits[wnan] <- runif(length(wnan), 0, 5)
+    }
+    
     if(!monotone) {inits=c(inits,0,0,0)}
     
     if(family=="nb") {inits=c(inits,0)}
@@ -68,7 +73,8 @@ growthGLM <- function(count,ti,timax=NA,family="Poisson",maxiter=1e4,runs=250,mo
     
     rg2=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-20,length(inits)),upper=rep(20,length(inits)),maxiter=maxiter/2,optim=TRUE,run=runs)
     
-    rg=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(min(rg@solution)*1.5,length(inits)),upper=rep(max(rg@solution)*1.5,length(inits)),maxiter=maxiter,optim=TRUE,suggestions=rbind(rg@solution,rg2@solution),optimArgs=list(control=list(maxit=1000)),run=runs)
+    rg=ga("real-valued",function(x) -lik(x,ti=ti,count=count),lower=rep(-abs(min(rg@solution))*1.5,length(inits)),upper=rep(abs(max(rg@solution))*1.5,length(inits)),
+          maxiter=maxiter,optim=TRUE,suggestions=rbind(rg@solution,rg2@solution),optimArgs=list(control=list(maxit=1000)),run=runs)
 
     pars=rg@solution[1,]
 
