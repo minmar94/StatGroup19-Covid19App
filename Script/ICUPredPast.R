@@ -158,7 +158,7 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   
 }
 
-load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/ResICU.RData")
+load("Data/ResICU.RData")
 
 # Read regional data up to today
 dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv")
@@ -191,5 +191,5 @@ for(dd in est_dates){
 outmod_terapie_tab %<>% 
   map2_dfr(as.list(est_dates), function(x, y) x %<>% mutate(DataPred = y + 1))
 
-save(outmod_terapie_tab, file = "C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/PastICUPred.RData")
+save(outmod_terapie_tab, file = "Data/PastICUPred.RData")
 
