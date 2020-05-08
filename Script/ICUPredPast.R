@@ -28,9 +28,9 @@ read_regional <- function(path){
     ungroup() 
   
   dati_reg$Key <- factor(dati_reg$Key, levels = unique(dati_reg$Key), 
-                         labels = c("Deceduti", "Dismessi/Guariti", "Isolamento domiciliare", "Nuovi positivi", "Ricoverati con sintomi", 
-                                    "Tamponi", "Terapia intensiva", "Totale casi", "Totale ricoverati", "Totale positivi", 
-                                    "Variazione totale positivi"))
+                         labels = c("Deceased", "Discharged healed", "Home isolation", "New positives", "Hospitalized with symptoms", 
+                                    "Swabs", "Intensive care", "Total cases", "Currently hospitalized", "Currently positives", 
+                                    "Variation currently positives"))
   
   return(dati_reg)
 }
@@ -43,41 +43,16 @@ dataprep_terapie <- function(dftoprep, resdata){
                                           ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.", denominazione_regione))) %>% 
     arrange(denominazione_regione, data)
   
-  
-  # icu <- dftoprep$`Terapia intensiva`
-  # # Converto in fattore i tempi
-  # fa <- factor(ag$data)
-  # # Converto in fattore la regione
-  # fa2 <- factor(ag$denominazione_regione)
-  # # Mi tengo i tempi come numerici
-  # ti <- unclass(fa)
-  # # I tempi originali
-  # ti_orig <- date(attr(ti, "levels"))
-  
   # Aggiusto le etichette
   #levels(fa2)[6] <- "Friuli V. G."
   resdata[10,1] <- "Valle d'Aosta"
   resdata[48,1] <- "Emilia-Romagna"
   
-  # Tengo solo i residenti delle regioni che matchano l'etichetta delle regioni
-  # ma <- match(resdata[,1],levels(fa2))
-  # residents <- resdata[which(!is.na(ma)),]
-  # # Prendo le etichette della regioni che ora matchano i residenti
-  # ma <- match(fa2,residents[,1])
   
-  
-  # converto in carattere
-  #fa2 <- as.character(fa2)
-  
-  #da <- data.frame(icu = icu, ti = as.numeric(ti), region=fa2, residents=residents[ma,2])
-  
-  #da$region <- factor(as.character(da$region))
-  
-  
-  da <- ag %>% dplyr::select(data, denominazione_regione, `Terapia intensiva`) %>% 
+  da <- ag %>% dplyr::select(data, denominazione_regione, `Intensive care`) %>% 
     left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
     mutate(data = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
-    rename(ti = data, region = denominazione_regione, icu = `Terapia intensiva`, residents = totale) 
+    rename(ti = data, region = denominazione_regione, icu = `Intensive care`, residents = totale) 
   
   mx <- max(da$ti)-15
   #mx_orig <- max(ti_orig)-15
@@ -177,13 +152,13 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   pr.oggi <- pred
   pr.oggi$capienza <- dattopred$capienza 
   
-  colnames(pr.oggi) <- c("Regione", "Previsione", "Limite Inferiore", "Limite Superiore", "Capienza")
+  colnames(pr.oggi) <- c("Region", "Prediction", "Lower bound", "Upper bound", "Capacity")
   
   return(pr.oggi)
   
 }
 
-load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/ResICU.RData")
+load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/ResICU.RData")
 
 # Read regional data up to today
 dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv")
@@ -216,5 +191,5 @@ for(dd in est_dates){
 outmod_terapie_tab %<>% 
   map2_dfr(as.list(est_dates), function(x, y) x %<>% mutate(DataPred = y + 1))
 
-save(outmod_terapie_tab, file = "Data/ICU/PastICUPred.RData")
+save(outmod_terapie_tab, file = "C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/PastICUPred.RData")
 

@@ -5,10 +5,7 @@ account: statgroup19
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2137519
-bundleId: 3028554
+bundleId: 3055600
 url: https://statgroup19.shinyapps.io/Covid19App/
-when: 1587152630.38452
-lastSyncTime: 1587152630.38452
-asMultiple: FALSE
-asStatic: FALSE
-ignoredFiles: DatiPiero.RData
+when: 1587659877.55091
+lastSyncTime: 1587659877.55091

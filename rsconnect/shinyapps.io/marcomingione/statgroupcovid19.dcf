@@ -5,7 +5,7 @@ account: marcomingione
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2061164
-bundleId: 3027857
+bundleId: 3049249
 url: https://marcomingione.shinyapps.io/StatGroupCovid19/
-when: 1587142881.50688
-lastSyncTime: 1587142881.50688
+when: 1587552367.06077
+lastSyncTime: 1587552367.06077

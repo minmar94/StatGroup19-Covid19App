@@ -19,7 +19,7 @@ read_regional <- function(path){
   
   dati_reg <- read_csv(path) %>% 
     dplyr::select(-note_it, -note_en) %>% 
-    # Creo la regione Trentino che appare sottoforma di province autonome
+    # 
     mutate(denominazione_regione = ifelse(denominazione_regione %in% c("P.A. Bolzano", "P.A. Trento"), "Trentino-Alto Adige", denominazione_regione),
            data = date(data)) %>% 
     gather(Key, Value, ricoverati_con_sintomi:tamponi) %>% 
@@ -28,14 +28,14 @@ read_regional <- function(path){
     ungroup() 
   
   dati_reg$Key <- factor(dati_reg$Key, levels = unique(dati_reg$Key), 
-                         labels = c("Deceduti", "Dimessi guariti", "Isolamento domiciliare", "Nuovi positivi", "Ricoverati con sintomi", 
-                                    "Tamponi", "Terapia intensiva", "Cumulati positivi", "Attualmente ricoverati", "Diagnosticati positivi", 
-                                    "Variazione totale positivi"))
+                         labels = c("Deceased", "Discharged healed", "Home isolation", "New positives", "Hospitalized with symptoms", 
+                                    "Swabs", "Intensive care", "Total cases", "Currently hospitalized", "Currently positives", 
+                                    "Variation currently positives"))
   
   return(dati_reg)
 }
 
-# Prepare data per modello terapie intensive a parte
+# Data preparation for ICU model
 dataprep_terapie <- function(dftoprep, resdata){
   
   ag <- dftoprep %>% 
@@ -43,14 +43,14 @@ dataprep_terapie <- function(dftoprep, resdata){
                                           ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.", denominazione_regione))) %>% 
     arrange(denominazione_regione, data)
   
-  # Aggiusto le etichette
+  # 
   resdata[10,1] <- "Valle d'Aosta"
   resdata[48,1] <- "Emilia-Romagna"
   
-  da <- ag %>% dplyr::select(data, denominazione_regione, `Terapia intensiva`) %>% 
+  da <- ag %>% dplyr::select(data, denominazione_regione, `Intensive care`) %>% 
     left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
     mutate(data = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
-    rename(ti = data, region = denominazione_regione, icu = `Terapia intensiva`, residents = totale) 
+    rename(ti = data, region = denominazione_regione, icu = `Intensive care`, residents = totale) 
   
   mx <- max(da$ti)-15
   da <- da[da$ti>mx,]
@@ -61,7 +61,7 @@ dataprep_terapie <- function(dftoprep, resdata){
   da <- da[order(da$region,da$ti),]
   da.pred <- da.pred[order(da.pred$region),]
 
-  # Aggiornamento capienza
+  # Capacity
   da.pred$capienza <- c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338))
   da$capienza <- rep(da.pred$capienza,each=max(da$ti))
   
@@ -147,14 +147,14 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   pr.oggi <- pred
   pr.oggi$capienza <- dattopred$capienza 
   
-  colnames(pr.oggi) <- c("Regione", "Previsione", "Limite Inferiore", "Limite Superiore", "Capienza")
+  colnames(pr.oggi) <- c("Region", "Prediction", "Lower bound", "Upper bound", "Capacity")
   
   return(pr.oggi)
   
 }
 
-load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/PastICUPred.RData")
-load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/ResICU.RData")
+load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/PastICUPred.RData")
+load("C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/ResICU.RData")
 
 # Read regional data up to today
 dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv")
@@ -169,4 +169,4 @@ outmod_terapie_tomor <- modello_terapia_intensiva(dat = icu_data$da, dattopred =
 
 outmod_terapie_tab %<>% bind_rows(outmod_terapie_tomor %>% mutate(DataPred = max(outmod_terapie_tab$DataPred)+1))
 
-save(outmod_terapie_tab, file = "C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroupCovid19/Data/ICU/PastICUPred.RData")
+save(outmod_terapie_tab, file = "C:/Users/marco/OneDrive/Desktop/Marco/Universita/StatGroup19Eng/Data/PastICUPred.RData")
