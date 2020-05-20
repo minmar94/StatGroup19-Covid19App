@@ -72,6 +72,6 @@ The methodology and the implementation is fully developed by StatGroup19 and its
 
 ## How is it done
 
-The web application is fully developed using the R statistical environment and the package [Shiny](https://rstudio.com/products/shiny/) and it is hosted on the free platform [ShinyApps](https://www.shinyapps.io/).
+The web application is fully developed using the R statistical environment and the package [Shiny](https://rstudio.com/products/shiny/) and it is hosted on the free platform [ShinyApps](https://www.shinyapps.io/). All the codes for generating the app are available at the following [link](https://github.com/minmar94/StatGroup19).
 
  
