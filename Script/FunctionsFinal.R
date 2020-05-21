@@ -172,8 +172,10 @@ d1MRich8 <- function(pars, ti, tk)
   ll2aux <- ifelse(is.infinite(ll2auxInf), ll1hp, ll2auxInf)
   l1p10hp <- 1+10^(h1*p1)
   l2p10hp <- 1+10^(h2*p2)
-  ll1p10hp <- log(l1p10hp)
-  ll2p10hp <- log(l2p10hp)
+  ll1p10hpInf <- log(l1p10hp)
+  ll2p10hpInf <- log(l2p10hp)
+  ll1p10hp <- ifelse(is.infinite(ll2p10hpInf), ll1hp, ll2p10hpInf)
+  ll2p10hp <- ifelse(is.infinite(ll2p10hpInf), ll1hp, ll2p10hpInf)
   
   dl1r1 <- exp(-s1*ll1aux+logr1)
   dl2r1 <- exp(s2*ll2p10hp-s1*ll1p10hp-s2*ll2aux+logr1)
@@ -264,8 +266,10 @@ d2MRich8 <- function(pars, ti, tk)
   ll2aux <- ifelse(is.infinite(ll2auxInf), ll1hp, ll2auxInf)
   l1p10hp <- 1+10^(h1*p1)
   l2p10hp <- 1+10^(h2*p2)
-  ll1p10hp <- log(l1p10hp)
-  ll2p10hp <- log(l2p10hp)
+  ll1p10hpInf <- log(l1p10hp)
+  ll2p10hpInf <- log(l2p10hp)
+  ll1p10hp <- ifelse(is.infinite(ll2p10hpInf), ll1hp, ll2p10hpInf)
+  ll2p10hp <- ifelse(is.infinite(ll2p10hpInf), ll1hp, ll2p10hpInf)
   
   
   # Lambda 1, r1
@@ -888,7 +892,9 @@ growthGLM <- function(count, ti, tPred=NA,
                      return(a)
                    })
     inits <- c(log((np[2])*sum(count)), log(np[4]), np[3], log(np[5]))
-    
+    lb <- c(0, -10, -5, -10)
+    ub <- c(15, 10, 5, 10)
+      
     # Linear predictor
     lp <- function(pars, ti)
     {
@@ -944,7 +950,10 @@ growthGLM <- function(count, ti, tPred=NA,
                log(np1[4]), log(np2[4]), # Le hill dei due tratti
                log(np1[5]), log(np2[5]), # Le s dei due tratti
                np1[3], np2[3]) # Le p dei due tratti
-
+    
+    lb <- c(0, -10, -10, -10, -10, -5, -5)
+    ub <- c(15, 10, 10, 10, 10, 5, 5)
+    
     # Linear predictor
     lp <- function(pars, ti)
     {
@@ -965,8 +974,8 @@ growthGLM <- function(count, ti, tPred=NA,
       neghessfun <- function(x) -PoisRichHessian(x, ti=ti, cc=count,
                                                  lp=lp)
       inits2 <- optim(inits, neglik, gr=neggr, method="BFGS")$par
-      inits3 <- BBoptim(inits, fn=neglik, gr=neggr, quiet = T,
-                        control=list(M=10, trace=F, checkGrad=F))$par
+      inits3 <- multiStart(rbind(inits, inits2), fn=neglik, gr=neggr, quiet = T,
+                           control=list(M=20, trace=F))$par
     }
     if (!monotone)
     {
@@ -976,8 +985,8 @@ growthGLM <- function(count, ti, tPred=NA,
                                                  lp=lp)
       inits2 <- optim(inits, neglik, gr=neggr, 
                         method="BFGS")$par
-      inits3 <- BBoptim(inits, fn=neglik, gr=neggr, quiet = T,
-                        control=list(M=10, trace=F, checkGrad=F))$par
+      inits3 <- multiStart(rbind(inits, inits2), fn=neglik, gr=neggr, quiet = T,
+                           control=list(M=20, trace=F))$par
     }
   }
   if(family=="Negative Binomial") 
@@ -986,6 +995,8 @@ growthGLM <- function(count, ti, tPred=NA,
     neglik <- function(x) -lik(x)
     
     inits <- c(inits, log(max(count)/2))
+    lb <- c(lb, 0)
+    ub <- c(ub, 15)
     if (monotone)
     {
       neggr <- function(x) -NBRichGradient(x, ti=ti, cc=count, lp=lp)
@@ -993,8 +1004,8 @@ growthGLM <- function(count, ti, tPred=NA,
       
       inits2 <- optim(inits, neglik, gr=neggr, 
                       method="BFGS")$par
-      inits3 <- BBoptim(inits, fn=neglik, gr=neggr, quiet = T,
-                   control=list(M=10, trace=F, checkGrad=F))$par
+      inits3 <- multiStart(rbind(inits, inits2), fn=neglik, gr=neggr, quiet = T,
+                   control=list(M=20, trace=F))$par
     }
     if (!monotone)
     {
@@ -1003,10 +1014,10 @@ growthGLM <- function(count, ti, tPred=NA,
       neghessfun <- function(x) -NBMRich8Hessian(x, ti=ti, cc=count, tk=tk, lp=lp)
       inits2 <- optim(inits, neglik, gr=neggr, 
                         method="BFGS")$par
-      inits3 <- BBoptim(inits, fn=neglik, gr=neggr, quiet = T,
-                        control=list(M=10, trace=F, checkGrad=F))$par
+      inits3 <- multiStart(rbind(inits, inits2), fn=neglik, gr=neggr, quiet = T,
+                           control=list(M=20, trace=F))$par
     }
-    
+
   }
   if(family!="Negative Binomial" & family!="Poisson") 
   {
@@ -1015,18 +1026,18 @@ growthGLM <- function(count, ti, tPred=NA,
 
   # Optimizing using Genetic algorithm
   rg <- ga("real-valued", function(x) lik(x), 
-           lower=rep(-20,length(inits)), upper=rep(20,length(inits)),
+           lower=lb, upper=ub,
            maxiter=maxiter/2, run=runs, optim=TRUE, 
-           suggestions=rbind(inits, inits2, inits3),
+           suggestions=rbind(inits, inits3), popSize=100, 
            monitor = F)
   rg2 <- ga("real-valued", function(x) lik(x),
-            lower=rep(-20,length(inits)), upper=rep(20,length(inits)),
-            maxiter=maxiter/2, run=runs, optim=TRUE,
+            lower=lb, upper=ub,
+            maxiter=maxiter/2, run=runs, optim=TRUE, popSize=100,
             monitor = F)
   rg3 <- ga("real-valued", function(x)  lik(x),
-            lower=rep(-abs(min(rg@solution))*1.5,length(inits)),
-            upper=rep(abs(max(rg@solution))*1.5,length(inits)),
-            maxiter=maxiter, run=runs, optim=TRUE,
+            lower=pmin(rg@solution, rg2@solution)-10,
+            upper=pmax(rg@solution, rg2@solution)+5,
+            maxiter=maxiter, run=runs, optim=TRUE, popSize=100,
             suggestions=rbind(rg@solution, rg2@solution),
             optimArgs=list(control=list(maxit=1000)),
             monitor = F)
@@ -1057,13 +1068,13 @@ growthGLM <- function(count, ti, tPred=NA,
   # pars <- propPars[[best]]$par
   
   propPars <- optimr::multistart(rbind(rg3@solution,
-                                       inits2,
                                        inits3,
                                        rg2@solution), 
-                                 neglik, gr = neggr, method="BFGS", 
+                                 neglik, gr = neggr,
                                  control=list(trace=0))
+
   best <- which.min(propPars$value)
-  
+
   pars <- as.numeric(propPars[best, 1:length(inits)])
   
   # Point prediction

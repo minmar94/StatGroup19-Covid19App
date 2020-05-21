@@ -14,10 +14,11 @@ paste_eng_date <- function(date){
 read_italian <- function(path){
   
   dati_Ita <- read_csv(path) %>% 
-    mutate(data = date(data)) %>% dplyr::select(-note_it, -note_en) 
+    mutate(data = date(data)) %>% dplyr::select(-note_it, -note_en, -variazione_totale_positivi) %>% 
+    mutate_if(is.numeric, abs)
   
   colnames(dati_Ita)[-c(1,2)] <- c("Hospitalized with symptoms", "Intensive care", "Current hospitalized",
-                                   "Home isolation", "Current positives", "Variation Current positives", "New positives", 
+                                   "Home isolation", "Current positives", "New positives", 
                                    "Discharged recovered", "Deceased",  "Cumulative positives", "Swabs", "Tested cases")
   
   return(dati_Ita)
@@ -28,7 +29,8 @@ read_italian <- function(path){
 read_regional <- function(path){
   
   dati_reg <- read_csv(path, guess_max = 1500) %>% 
-    dplyr::select(-note_it, -note_en) %>% 
+    dplyr::select(-note_it, -note_en, -variazione_totale_positivi) %>% 
+    mutate_if(is.numeric, abs) %>% 
     # 
     mutate(denominazione_regione = ifelse(denominazione_regione %in% c("P.A. Bolzano", "P.A. Trento"), "Trentino-Alto Adige",
                                           denominazione_regione),
@@ -41,8 +43,7 @@ read_regional <- function(path){
   dati_reg$Key <- factor(dati_reg$Key, levels = unique(dati_reg$Key), 
                          labels = c("Tested cases","Deceased", "Discharged recovered", "Home isolation", "New positives", 
                                     "Hospitalized with symptoms", 
-                                    "Swabs", "Intensive care", "Cumulative positives", "Current hospitalized", "Current positives", 
-                                    "Variation Current positives"))
+                                    "Swabs", "Intensive care", "Cumulative positives", "Current hospitalized", "Current positives"))
   
   return(dati_reg)
 }
@@ -373,21 +374,35 @@ do_ts <- function(da, is.reg = F, reg, varsel, datasel, is.incrementi=T, lag_inc
             ungroup() 
         })
     }
-    if(lag_incr == "weekly variations" & varsel %in% c("Cumulative positives", "Discharged recovered", "Deceased")){
-      dts %<>%  
-        map_dfr(function(x){
-          x %<>% mutate(week = week(data)) %>% 
-        group_by(week) %>% 
-        summarise(data = last(data), Key = last(Key), Value = last(Value),
-                   denominazione_regione = last(denominazione_regione)) %>% 
-        mutate(IncrAss = c(0, diff(Value)),
-               IncrPerc = round((c(0, diff(Value))/Value)*100,4)) %>% 
-        ungroup() 
-        })
+    if(lag_incr == "weekly variations"){
+      if(varsel %in% c("Cumulative positives", "Discharged recovered", "Deceased", "Swabs", "Tested cases")){
+        dts %<>%  
+          map_dfr(function(x){
+            x %<>% mutate(week = week(data)) %>% 
+              group_by(week) %>% 
+              summarise(data = last(data), Key = last(Key), Value = last(Value),
+                        denominazione_regione = last(denominazione_regione)) %>% 
+              mutate(IncrAss = c(0, diff(Value)),
+                     IncrPerc = round((c(0, diff(Value))/Value)*100,4)) %>% 
+              ungroup() 
+          }) 
+      } else{
+        dts %<>%  
+          map_dfr(function(x){
+            x %<>% mutate(week = week(data)) %>% 
+              group_by(week) %>% 
+              summarise(data = last(data), Key = last(Key), Value = mean(Value, na.rm = T),
+                        denominazione_regione = last(denominazione_regione)) %>% 
+              mutate(IncrAss = c(0, diff(Value)),
+                     IncrPerc = round((c(0, diff(Value))/Value)*100,4)) %>% 
+              ungroup() 
+          })
+      }
+     
     }
   
     ylabel <- ifelse(tipo.incremento == "Absolute", "Absolute variations",
-                     "Relative (%) variations") 
+                     "Relative variations (%)") 
     
     if(tipo.incremento == "Absolute"){
       dts <- dts %>% dplyr::select(data, denominazione_regione, Key, IncrAss) %>% rename(Value = IncrAss)
@@ -420,13 +435,13 @@ paste_signpercent <- function(x_oggi,x_ieri){
 # Prepare data for model regional level
 prepdata_for_model <- function(dftoprep, resdata){
   ag <- dftoprep %>% 
-    mutate(denominazione_regione = ifelse(denominazione_regione == "Trentino-Alto Adige", "TrentinoAltoAdige", 
-                                          ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.",
+    mutate(denominazione_regione = ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.",
                                                  ifelse(denominazione_regione == "Emilia-Romagna", "Emilia Romagna",
-                                                        denominazione_regione)))) %>% 
+                                                        denominazione_regione))) %>% 
     arrange(denominazione_regione, data)
   
   # Label
+  resdata[30,1] <- "Trentino-Alto Adige"
   resdata[10,1] <- "Valle d'Aosta"
   
   da <- ag %>% 
@@ -629,7 +644,8 @@ DT_out_model <- function(outputmod, horizon = 15, VarModel = "Cumulative positiv
   
   
   ddtt <- datatable(ddt, rownames = FALSE, class = 'cell-border stripe',
-                    options = list(dom = 'tp', pageLength = 5, scrollX = T, columnDefs = list(list(className = 'dt-center', targets = "_all"))),
+                    options = list(dom = 'tpl', pageLength = 5, scrollX = T, lengthMenu = c(5,10,15,20),
+                                   columnDefs = list(list(className = 'dt-center', targets = "_all"))),
                     #container = sketch, 
                     caption = capts_out)
   
@@ -643,10 +659,12 @@ summary_out_model <- function(outputmod, VarModel = "Cumulative positives", resd
   
   famout <- outputmod$fam
   
+  resdata[30,1]="Trentino-Alto Adige"
   resdata[10,1]="Valle d'Aosta"
   
-  if(is.reg & !is.null(reg)) mx_sel <- resdata[resdata$Territorio == reg, 2]
-  if(!is.reg) mx_sel <- 6*10^7
+  mx_sel <- 6*10^7
+  if(is.reg) mx_sel <- resdata[resdata$Territorio == reg, 2]
+  
   
   # omod <- outputmod$cc1
   # 
@@ -666,7 +684,8 @@ summary_out_model <- function(outputmod, VarModel = "Cumulative positives", resd
   # 
   pdate <- paste_eng_date(est_pick)
  
-  coverage <- ((sum((outputmod$cc$ly <= outputmod$cc$pc) & (outputmod$cc$uy >= outputmod$cc$pc), na.rm = T))/sum(!is.na(outputmod$cc$pc))) %>% round(2)
+  coverage <- ((sum((outputmod$cc$ly <= outputmod$cc$pc_all) & (outputmod$cc$uy >= outputmod$cc$pc_all), na.rm = T))/sum(!is.na(outputmod$cc$pc_all))) %>%
+    round(2)
     
   # Asintoto cumulati
   asi_est_l <- exp(outputmod$pars[[1]][1]-1.96*outputmod$stderrs[[1]][1])
@@ -1243,4 +1262,122 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
 
   return(p_out)
 
+}
+
+### ICU predictions
+dataprep_terapie <- function(dftoprep, resdata){
+  
+  ag <- dftoprep %>% 
+    mutate(denominazione_regione = ifelse(denominazione_regione == "Trentino-Alto Adige", "TrentinoAltoAdige", 
+                                          ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.", denominazione_regione))) %>% 
+    arrange(denominazione_regione, data)
+  
+  # 
+  resdata[10,1] <- "Valle d'Aosta"
+  resdata[48,1] <- "Emilia-Romagna"
+  
+  da <- ag %>% dplyr::select(data, denominazione_regione, `Intensive care`) %>% 
+    left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
+    mutate(data = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
+    rename(ti = data, region = denominazione_regione, icu = `Intensive care`, residents = totale) 
+  
+  mx <- max(da$ti)-15
+  da <- da[da$ti>mx,]
+  da$ti <- da$ti-mx
+  
+  da.pred <- da[which(da$ti==max(da$ti)),]
+  da.pred$ti <- max(da$ti)+1
+  da <- da[order(da$region,da$ti),]
+  da.pred <- da.pred[order(da.pred$region),]
+  
+  # Capacity
+  da.pred$capienza <- c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338))
+  da$capienza <- rep(da.pred$capienza,each=max(da$ti))
+  
+  
+  return(list(da = da, dapred = da.pred))
+}
+
+fup <- function(dat){
+  y <- dat$icu
+  x <- cbind(dat$ti,dat$ti^2/100,dat$ti^3/250)
+  tsw3 <- tsglm(y,xreg=x[,1:3],link="log",dist="poisson")
+  tsw2 <- tsglm(y,xreg=x[,1:2],link="log",dist="poisson")
+  tsw1 <- tsglm(y,xreg=x[,1],link="log",dist="poisson")
+  tsw <- tsglm(y,link="log",dist="poisson")
+  newx <- NULL
+  if(BIC(tsw)>BIC(tsw1)){
+    tsw <- tsw1; newx=data.frame(ti=max(x[,1])+1)
+  }
+  if(BIC(tsw)>BIC(tsw2)){
+    tsw <- tsw2
+    newx <- data.frame(ti=max(x[,1])+1,ti2=(max(x[,1])+1)^2/100)
+  }
+  if(BIC(tsw)>BIC(tsw3)){
+    tsw <- tsw3
+    mx <- max(x[,1])+1
+    newx <- data.frame(ti=mx,ti2=mx^2/100,ti3=mx^3/250)
+  }
+  
+  pr <- predict(tsw, newxreg=newx,level=1-0.01)
+  
+  outvec <- c(pr$pred,pr$interval)
+  names(outvec) <- c("est", "lb", "ub")
+  return(outvec)
+}
+
+modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
+  
+  fit2 <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=dat,family=poisson)
+  pr2 <- exp(predict(fit2,dattopred))
+  
+  ba <- dat %>% group_split(region) %>% sapply(FUN = fup, simplify = T) %>% t
+  
+  # optW (unique)
+  
+  d2 <- dat[dat$ti<max(dat$ti),]
+  fit.loss <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=d2,family=poisson)
+  pr.loss <- exp(predict(fit.loss,d2))
+  ba.loss <- d2 %>% group_split(region) %>% sapply(FUN = fup, simplify = T) %>% t
+  
+  do <- function(x,b,l,da){
+    w <- exp(x)/(1+exp(x))
+    abs(b*w+l*(1-w)-da$icu)^2
+  }
+  
+  optW <- rep(NA,nrow(dattopred))
+  for(j in 1:length(optW)) {
+    op <- optimize(function(x) do(x ,ba.loss[,1],pr.loss,d2)[j],c(-15,15))
+    optW[j] <- exp(op$min)/(1+exp(op$min))
+  }
+  
+  jnk <- list(preds=round(pr2*(1-optW)+ba[,1]*optW),tsci=ba[,-1],optW=optW)
+  
+  pred <- data.frame(region=levels(dat$region),prediction=jnk$preds)
+  
+  cl <- makeCluster(3, type = "SOCK")
+  registerDoSNOW(cl)
+  
+  res2 <- matrix(NA, nrow = 500, ncol = nrow(dattopred))
+  res2 <- foreach(j = 1:500, .packages = "lme4", .combine = "rbind")  %dopar% {
+    ws <- sample(nrow(dat),nrow(dat),replace=TRUE)
+    daws <- dat[ws,]
+    fit2 <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=daws,family=poisson)
+    pr2 <- exp(predict(fit2,dattopred))
+    return(pr2)
+  }
+  
+  stopCluster(cl)
+  
+  qu12 <- apply(res2, 2, quantile, probs = c(0.01/2, 1-0.01/2), na.rm=TRUE)
+  pred$prLow.Bonf <- apply(cbind(round(qu12[1,]),jnk$tsci[,1]),1,min)
+  pred$prUp.Bonf <- apply(cbind(round(qu12[2,]),jnk$tsci[,2]),1,max)
+  pred$prUp.Bonf <- pmin(pred$prUp.Bonf,dattopred$capienza)
+  pr.oggi <- pred
+  pr.oggi$capienza <- dattopred$capienza 
+  
+  colnames(pr.oggi) <- c("Region", "Prediction", "Lower bound", "Upper bound", "Capacity")
+  
+  return(pr.oggi)
+  
 }
