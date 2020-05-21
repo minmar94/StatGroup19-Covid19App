@@ -1225,7 +1225,8 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
                        marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
         add_trace(y = ~da_plot[,4,drop=T]*100, type = "scatter",mode="lines+markers",
                   marker = list(color = "grey"), line = list(color = "grey"), name = "with daily tests") %>% 
-        layout(title =  ttl, xaxis = list(title = ""), yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
+        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1),
+               yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
     } else{
       da_plot %<>%
         dplyr::select(data, denominazione_regione, rlang::syms(type_of_ratio)[[1]])
@@ -1234,7 +1235,8 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
                        hoverinfo = "text",
                        type = "scatter",mode="lines+markers",
                        marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
-        layout(title =  ttl, xaxis = list(title = ""), yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
+        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1),
+               yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
     }
     
   }
