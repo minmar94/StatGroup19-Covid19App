@@ -78,9 +78,22 @@ TotPop <- data_formodel_prep %>% distinct(region, residents) %$% sum(residents)
 tod_summary <- return_current_situa(da = dati_Ita, TotPop = TotPop)
 
 # Icu data preparation
+if(today == max(outmod_terapie_tab$DataPred)){
+  # Modello terapia intensiva
+  icu_data <- dataprep_terapie(dftoprep = dati_reg %>% spread(Key, Value), resdata = residents)
+  
+  outmod_terapie_tomor <- modello_terapia_intensiva(dat = icu_data$da, dattopred = icu_data$dapred)
+  
+  outmod_terapie_tab %<>% bind_rows(outmod_terapie_tomor %>% mutate(DataPred = max(outmod_terapie_tab$DataPred)+1))
+  
+  save(outmod_terapie_tab, file = "Data/PastICUPred.RData")
+  
+} 
+
 datasuTabella <- max(outmod_terapie_tab$DataPred)
 outmod_terapie_plot <- outmod_terapie_tab %>% filter(DataPred < datasuTabella)
-outmod_terapie_table <- outmod_terapie_tab %>% filter(DataPred == max(DataPred))
+outmod_terapie_table <- outmod_terapie_tab %>% filter(DataPred == max(DataPred)) 
+
 
 # Count user logged
 users = reactiveValues(count = 0)
@@ -177,7 +190,7 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                                                  choices = list("raw","daily variations", "weekly variations"),
                                                  status = "danger",icon = icon("check"), 
                                                  selected = "raw"),
-                                  helpText("Weekly variatons are only available for cumulative positives, discharged recovered and deceased."),
+                                  #helpText("Weekly variatons are only available for cumulative positives, discharged recovered and deceased."),
                                   uiOutput(outputId = "IncrPercSiNo"),
                                   prettyCheckbox(inputId = "WantDensity", label = "Rescale map w.r.t. the population size", 
                                                  status = "danger",icon = icon("check"), value = F),
@@ -229,7 +242,19 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                  # Second tab: Model
                  tabPanel("Short-term forecast", icon = icon("chart-line"),
                           fluidPage(
-                            
+                            tags$head(
+                              tags$style(
+                                HTML(".shiny-notification {
+              height: 100px;
+              width: 300px;
+              position:fixed;
+              top: calc(50% - 50px);;
+              left: calc(50% - 50px);;
+            }
+           "
+                                )
+                              )
+                            ),
                             tags$h2(tags$strong("Generalized linear (Mirrored) Richards model*")),
                             # tags$h5("*further details on the methodology can be found ",
                             #         tags$a(href = "https://statgroup-19.blogspot.com/p/covid-19-epidemic-progress-medium-term.html" , "here")),
@@ -239,16 +264,16 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                                 tags$h3(tags$strong("Model parameters")),
                                 pickerInput(inputId = "VarForModel", 
                                             label = "Select the variable you want to model",
-                                            choices = list("Cumulative positives", "New positives", "Deceased",
+                                            choices = list("New positives", "Cumulative positives", "Deceased",
                                                            "Current hospitalized", "Hospitalized with symptoms",
                                                            "Home isolation","Discharged recovered"),
-                                            selected = "Cumulative positives", width = "300px"), 
+                                            selected = "New positives", width = "300px"), 
                                 sliderInput(inputId = "ExcludeDaysModel", label = "Fitting interval (exclude up to the last 15 days):", 
                                             min = today-14, max = today, value = today, width = "300px"),
                                 radioButtons(inputId = "ModelFamily",
                                              label = "Choose a distribution",
-                                             choices = list("Poisson", "Negative Binomial"),
-                                             selected = "Poisson"),
+                                             choices = list( "Negative Binomial", "Poisson"),
+                                             selected = "Negative Binomial"),
                                 helpText("If you are not satisfied by the Poisson coverage, try the Negative Binomial (we recommend it)!"),
                                 materialSwitch(inputId = "ModRegioneSiNo", 
                                                label = HTML("<b>Model by region</b>"), 
@@ -618,7 +643,7 @@ server <- function(input, output, session){
       pickerInput(inputId = "SelRegModel",
                   label = "Select a region",
                   choices = list("Northern Italy" = list("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta",
-                                                         "Emilia Romagna", "Friuli V. G.", "Veneto", "TrentinoAltoAdige"),
+                                                         "Emilia Romagna", "Friuli V. G.", "Veneto", "Trentino-Alto Adige"),
                                  "Central Italy" = list("Lazio", "Marche", "Toscana", "Umbria"),
                                  "Southern Italy" = list("Abruzzo", "Basilicata", "Calabria",
                                                          "Campania", "Molise", "Puglia"),
@@ -769,14 +794,18 @@ server <- function(input, output, session){
     input$ModelFamily
   })
   
+  RegModSiNo <-  eventReactive(input$updatemodel, {
+    input$ModRegioneSiNo
+  })
+  
   # Run the model
   outputModello <- eventReactive( input$updatemodel, {
     
     updateSliderInput(session, inputId = "SelDateModel", value = 1)
     
-    withProgress(message = "In progress...", value = 0.5, expr =  {             
+    withProgress(message = "In progress...", detail = "please be patient", value = 0.5, expr =  {             
       ## Your code
-      if(input$ModRegioneSiNo){
+      if(RegModSiNo()){
         return(
           tryCatch(
             suppressWarnings(run_growth_model(da = data_formodel_prep, reduce_obs = as.character(input$ExcludeDaysModel),
@@ -821,7 +850,7 @@ server <- function(input, output, session){
       if(outputModello()$NoConv){
         checkboxInput(
           inputId = "Showbands",
-          label = "Add 95% confidence interval",
+          label = "Add 99% confidence interval",
           value = F
         )
       }else{
@@ -843,16 +872,11 @@ server <- function(input, output, session){
   output$SummaryModel <- reactive({
     
     if(!is.character(outputModello())){
-      if(input$ModRegioneSiNo){
-        
-         sum_out <-  summary_out_model(outputmod = outputModello(), VarModel = VMSelected(), resdata = residents, 
-                            reg = RegMSelected(), is.reg = T)
+    
+      sum_out <-  summary_out_model(outputmod = outputModello(), VarModel = VMSelected(), resdata = residents, 
+                                    reg = RegMSelected(), is.reg = RegModSiNo())
         
       }else{
-        sum_out <- summary_out_model(outputmod = outputModello(), VarModel = VMSelected(), resdata = residents, is.reg = F, reg = NULL)
-      }
-      
-    }else{
       sum_out <- HTML(outputModello())
     }
     
@@ -883,16 +907,46 @@ server <- function(input, output, session){
   #### ICU section
   output$ICuTab <- renderDT({
     
+    if(today == datasuTabella){
+      showModal(modalDialog(
+        HTML("<p align='center'>Stiamo aggiornando le previsioni delle terapie intensive. Tra poco troverai quelle per domani!</p>"), 
+        size = "m",
+        title = HTML("<b>ATTENZIONE</b>"), easyClose = T))
+    }
+    
     capts_out <-  htmltools::tags$caption(
       style = 'caption-side: bottom; text-align: left;',
-      'Table: ', htmltools::em(paste0("ICU predictions by region, 99% confidence bounds and overall capacity. Best case and worst case scenarios are obtained by dividing both the lower bounds and the upper bounds by the capacity, and reflect the pressure on the regional health care system."))
+      'Table: ', htmltools::em(HTML(paste0("ICU predictions by region, 99% confidence bounds and overall capacity. Best case, HSS Pressure and Worst case are obtained by dividing the lower bounds, the prediction and the upper bounds by the capacity. THey reflect the pressure on the regional health care system.<br/>'Prediction' is yellow if an improvement is expected w.r.t. yesterday, viceversa is for the red. 'HSS Pressure (%)' is coloured proportionally to the number of occupancies.")))
     )
     
-    outmod_terapie_table %>% mutate(`Best case (%)` = round(`Lower bound`/Capacity*100,2), `Worst case (%)` = round(`Upper bound`/Capacity*100,2)) %>% 
+    varwrtoday <- (outmod_terapie_plot %>% filter(DataPred == max(DataPred)) %$% Prediction ) - outmod_terapie_table$Prediction
+    tabICU <- outmod_terapie_table %>% 
+      mutate(`Best case (%)` = round(`Lower bound`/Capacity*100,2), 
+             `HSS Pressure (%)` = round(Prediction/Capacity*100, 2),
+             `Worst case (%)` = round(`Upper bound`/Capacity*100,2),
+             IsBetterPred = varwrtoday) %>% 
       dplyr::select(-DataPred) %>% 
+      mutate(
+        Region = as.character(Region),
+        Region = ifelse(Region == "TrentinoAltoAdige", "Trentino-Alto Adige", Region),
+        Region = ifelse(Region == "Friuli V. G.", "Friuli Venezia Giulia", Region)
+        )
+    
+    tabICU %>% 
       datatable(rownames = F, caption = capts_out,
-                options = list(dom = 'tp', pageLength = 10, scrollX = T, 
-                                             columnDefs = list(list(className = 'dt-center', targets = "_all"))))
+                options = list(dom = 'tpl', pageLength = 10, scrollX = T, lengthMenu = c(10, 15, 20), 
+                                             columnDefs = list(
+                                               list(className = 'dt-center', targets = "_all"),
+                                               list(visible = F, targets = 8)
+                                             ))) %>% 
+      formatStyle(columns = "Prediction", valueColumns = "IsBetterPred",fontWeight = "bold",
+                  backgroundColor = styleInterval(0, c("lemonchiffon", "salmon")), color = "black") %>% 
+      formatStyle(columns = "HSS Pressure (%)", 
+                  background = styleColorBar(c(0,100), "salmon"),
+                  backgroundSize = '98% 88%',
+                  backgroundRepeat = 'no-repeat',
+                  backgroundPosition = 'center') %>% 
+      formatStyle(columns = "Region", fontWeight = "bold")
     
   })
   
