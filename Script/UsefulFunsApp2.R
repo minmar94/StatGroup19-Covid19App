@@ -485,13 +485,14 @@ run_growth_model <- function(da, reg=NULL, wh="Cumulative positives", horizon = 
   timax <- mti+horizon
   # 
   diffpc <- diff(pc)
-  lastidx <- (length(pc)-19):length(pc) 
-  beta1 <- coef(lm(pc[lastidx]~ti[lastidx]))[2]
-  
-  mnt <- as.logical(ifelse(beta1<0, F, T))
-  if(!is.null(reg) & wh == "New positives"){
-    if(reg == "Molise") mnt <- FALSE
-  } 
+  # lastidx <- (length(pc_all)-19):length(pc_all) 
+  # beta1 <- coef(lm(pc_all[lastidx]~dat$ti[lastidx]))[2]
+  # 
+  # mnt <- as.logical(ifelse(beta1<0, F, T))
+  # if(!is.null(reg) & wh == "New positives"){
+  #   if(reg == "Molise") mnt <- FALSE
+  # } 
+  mnt <- as.logical(ifelse(wh %in% c("Cumulative positives", "Deceased", "Discharged recovered"), T, F))
   rrs <- 500
   
   np <- tryCatch(
@@ -1238,7 +1239,7 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
       da_plot %<>%
         dplyr::select(data, denominazione_regione, `Positivity1`, `Positivity2`)
       p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop=T]*100,
-                       text = paste0(da_plot$data, "\n", round(da_plot[,3,drop=T]*100,2),"%"),
+                       text = paste0(format(da_plot$data, "%b %d, %Y"), "\n", round(da_plot[,3,drop=T]*100,2),"%"),
                        hoverinfo = "text", name = "with dayly swabs",
                        type = "scatter",mode="lines+markers",
                        marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
@@ -1250,7 +1251,7 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
       da_plot %<>%
         dplyr::select(data, denominazione_regione, rlang::syms(type_of_ratio)[[1]])
       p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop=T]*100,
-                       text = paste0(da_plot$data, "\n", round(da_plot[,3,drop=T]*100,2),"%"),
+                       text = paste0(format(da_plot$data, "%b %d, %Y"), "\n", round(da_plot[,3,drop=T]*100,2),"%"),
                        hoverinfo = "text",
                        type = "scatter",mode="lines+markers",
                        marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
