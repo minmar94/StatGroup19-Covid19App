@@ -27,7 +27,7 @@ rm(list=ls())
 Sys.setlocale(locale = "C")
 
 # Load functions and data
-source("Script/FunctionsFinal.R")
+source("Script/FunctionsFinal2.R")
 source("Script/UsefulFunsApp2.R")
 
 load("Data/PastICUPred.RData")
@@ -248,7 +248,7 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
               height: 100px;
               width: 300px;
               position:fixed;
-              top: calc(50% - 50px);;
+              top: calc(10%);;
               left: calc(50% - 50px);;
             }
            "
@@ -648,7 +648,7 @@ server <- function(input, output, session){
                                  "Southern Italy" = list("Abruzzo", "Basilicata", "Calabria",
                                                          "Campania", "Molise", "Puglia"),
                                  "Insular" = list("Sardegna", "Sicilia")),
-                  selected = "Lombardia",
+                  selected = "Lombardia",width = "300px",
                   options = list(
                     `actions-box` = FALSE,
                     header = "Regions"
