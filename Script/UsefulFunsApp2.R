@@ -13,7 +13,7 @@ paste_eng_date <- function(date){
 # Read italian data
 read_italian <- function(path){
   
-  dati_Ita <- read_csv(path) %>% 
+  dati_Ita <- data.table::fread(input = path) %>% as_tibble() %>% 
     mutate(data = date(data)) %>% dplyr::select(-note_it, -note_en, -variazione_totale_positivi) %>% 
     mutate_if(is.numeric, abs)
   
@@ -28,7 +28,7 @@ read_italian <- function(path){
 # Read and prepare regional data
 read_regional <- function(path){
   
-  dati_reg <- read_csv(path, guess_max = 1500) %>% 
+  dati_reg <- data.table::fread(path) %>% as_tibble() %>% 
     dplyr::select(-note_it, -note_en, -variazione_totale_positivi) %>% 
     mutate_if(is.numeric, abs) %>% 
     # 
@@ -41,8 +41,7 @@ read_regional <- function(path){
     ungroup() 
   
   dati_reg$Key <- factor(dati_reg$Key, levels = unique(dati_reg$Key), 
-                         labels = c("Tested cases","Deceased", "Discharged recovered", "Home isolation", "New positives", 
-                                    "Hospitalized with symptoms", 
+                         labels = c("Tested cases","Deceased", "Discharged recovered", "Home isolation", "New positives", "Hospitalized with symptoms", 
                                     "Swabs", "Intensive care", "Cumulative positives", "Current hospitalized", "Current positives"))
   
   return(dati_reg)
@@ -51,15 +50,55 @@ read_regional <- function(path){
 # Read province data
 read_province <- function(path){
   
-  dati_prov <- read_csv(path) %>% 
+  dati_prov <- data.table::fread(path) %>% as_tibble() %>% 
     dplyr::select(-note_it, -note_en) %>%
     mutate(denominazione_regione = ifelse(denominazione_regione %in% c("P.A. Bolzano", "P.A. Trento"), "Trentino-Alto Adige", denominazione_regione),
            data = date(data)) %>% 
     drop_na(sigla_provincia) %>% 
     rename(`Cumulative positives` = totale_casi)
+}
+
+# Read residents data
+read_residents <- function(path){
+  residents <- data.table::fread(input = path, sep = ",") %>% as_tibble()
+  residents$Territorio <- as.character(residents$Territorio)
   
+  residents %<>% 
+    mutate(
+      Territorio = ifelse(Territorio == "Valle Aosta", "Valle d'Aosta", Territorio),
+      Territorio = ifelse(Territorio == "Emilia Romagna", "Emilia-Romagna", Territorio),
+      Territorio = ifelse(Territorio == "Friuli V. G.", "Friuli Venezia Giulia", Territorio),
+      Territorio = ifelse(Territorio == "TrentinoAltoAdige", "Trentino-Alto Adige", Territorio),
+    ) 
+  residents$Territorio[residents$Territorio %in% c("AscoliPiceno", "ProvinciaAutonomaTrento", "MonzaedellaBrianza", "ReggiodiCalabria",
+                                               "ProvinciaAutonomaBolzano/Bozen", "ViboValentia", "LaSpezia", "ReggionellEmilia",
+                                               "Massa-Carrara")] <- c("La Spezia", "Monza e della Brianza", "Bolzano", "Trento", "Reggio nell'Emilia",
+                                                                      "Massa Carrara", "Ascoli Piceno", "Reggio di Calabria", "Vibo Valentia")
   
-  
+  return(residents)
+}
+
+# Help button
+helpbttn <- function(){
+  showModal(modalDialog(
+    title = HTML("</br></br><h3><b>Important information:</b></h3>"),
+    HTML("
+  <ul><li><b>Cumulative positives =</b>  current positives + deceased + discharged recovered </li>
+  <li><b>Current positives =</b> hospitalized with symptoms + intensive care + home isolation</li>
+  <li><b>New positives =</b> cumulative positives of today - cumulative positives of yesterday</li>
+  <li><b>Current hospitalized =</b> hospitalized with symptoms + intensive care</li>
+  <li><b>Death rate =</b> deceased/population</li>
+  <li><b>Fatality rate =</b> deceased/cumulative positives</li>
+  <li><b>NB: </b> the data, as it is reported by Italian Protezione Civile, refers to the number of people that have been found positive to SARS-Cov-2. 
+           This does not imply that the same number of people developed COVID-19 disease.</li>
+  <li><b>NB: </b>Tested cases identify diagnostic swabs. The difference between 'swabs' and 'tested cases' corresponds to control swabs, which are done on the same individual to confirm the healing or for other necessities.</li>
+  <li><b>NB: </b>The term epidemic refers to a disease that affects a large number of people within a community, population, or region. On the other hand, a pandemic is an epidemic that is spread over multiple countries or continents.</li>
+           </ul>"), 
+    easyClose = TRUE
+  ))
+}
+whatiscovid <- function(){
+  HTML("<h2><b>What is COVID-19?</b></h2>","Coronavirus disease 2019 (COVID-19) is an infectious disease caused by Severe Acute Respiratory Syndrome Coronavirus 2 (SARS-CoV-2). The disease was first identified in December 2019 in Wuhan, the capital of China's Hubei province, and it has spread globally. The first confirmed case of what was then an unknown coronavirus was traced back to November 2019 in Hubei. Common symptoms include fever, cough, and shortness of breath. Other symptoms may include fatigue, muscle pain, diarrhoea, sore throat, loss of smell, and abdominal pain. The time from exposure to onset of symptoms is typically around five days but may range from two to fourteen days. While the majority of cases result in mild symptoms, some progress to viral pneumonia and multi-organ failure.")
 }
 
 # Read italian data shapefile for map
@@ -97,77 +136,12 @@ read_shape_italy <- function(province = F){
 
 # Add residents to map
 add_residents_tomap <- function(d_sf, resdata){
-  
-  # Modify labels
-  resdata[10,1] <- "Valle d'Aosta"
-  resdata[30,1] <- "Trentino-Alto Adige"
-  resdata[43,1] <- "Friuli Venezia Giulia"
-  resdata[48,1] <- "Emilia-Romagna"
-  
-  resdata$Territorio[resdata$Territorio %in% c("AscoliPiceno", "ProvinciaAutonomaTrento", "MonzaedellaBrianza", "ReggiodiCalabria",
-                            "ProvinciaAutonomaBolzano/Bozen", "ViboValentia", "LaSpezia", "ReggionellEmilia",
-                            "Massa-Carrara")] <- c("La Spezia", "Monza e della Brianza", "Bolzano", "Trento", "Reggio nell'Emilia",
-                                                   "Massa Carrara", "Ascoli Piceno", "Reggio di Calabria", "Vibo Valentia")
+
   resdata %<>% rename(residenti = totale)
   
   return(d_sf %>% sp::merge(resdata, by.y = "Territorio", by.x = 1))
   
 }
-
-# Not actually in use
-print_current_situa <- function(da, TotPop){
-  today <- max(da$data)
-  dat_today <- da %>% dplyr::filter(data %in% c(today, today-1))
-  
-  attualmente_positivi_ultimo <- dat_today$`Current positives`[2]
-  incr_attualmente_positivi <- paste_signpercent(dat_today$`Current positives`[2], dat_today$`Current positives`[1])
-  
-  deceduti_ultimo <- dat_today$Deceased[2]
-  incr_deceduti <- paste_signpercent(dat_today$Deceased[2], dat_today$Deceased[1])
-  
-  dimessi_guariti_ultimo <- dat_today$`Discharged recovered`[2]
-  incr_guariti <- paste_signpercent(dat_today$`Discharged recovered`[2], dat_today$`Discharged recovered`[1])
-  
-  totale_casi_ultimo <- dat_today$`Cumulative positives`[2]
-  incr_totale_casi <- paste_signpercent(dat_today$`Cumulative positives`[2], dat_today$`Cumulative positives`[1])
-  
-  ricov_sintomi_ultimo <- dat_today$`Hospitalized with symptoms`[2]
-  incr_ricoverati <- paste_signpercent(dat_today$`Hospitalized with symptoms`[2], dat_today$`Hospitalized with symptoms`[1])
-  
-  isol_domic_ultimo <- dat_today$`Home isolation`[2]
-  incr_isolamento <- paste_signpercent(dat_today$`Home isolation`[2], dat_today$`Home isolation`[1])
-  
-  terapia_intens_ultimo <- dat_today$`Intensive care`[2]
-  incr_terapia <- paste_signpercent(dat_today$`Intensive care`[2], dat_today$`Intensive care`[1])
-  
-  totale_ricoverati_ultimo <- dat_today$`Current hospitalized`[2]
-  incr_currhosp <- paste_signpercent(dat_today$`Current hospitalized`[2], dat_today$`Current hospitalized`[1])
-  
-  
-  quoz_let_ita <- round(dat_today$Deceased[2]/dat_today$`Cumulative positives`[2],4)*100
-  
-  tasso_mort_ita <- round(dat_today$Deceased[2]/TotPop,4)*100
-  
-  return(
-    paste0(tags$h2(tags$strong("Italian current situation about the COVID-19 pandemic*")),
-           h5("*most recent update: ", paste_eng_date(today)),
-           "<ul>",
-           "<li><b>Cumulative positives: </b>", totale_casi_ultimo, " (",incr_totale_casi,")","</li>",
-           "<li><b>Current positives: </b>", attualmente_positivi_ultimo," (",incr_attualmente_positivi,")","</li>",
-           "<li><b>Current hospitalized: </b>", totale_ricoverati_ultimo, " (",incr_currhosp,")","</li>",
-           "<li><b>Intensive care units: </b>", terapia_intens_ultimo, " (",incr_terapia,")","</li>",
-           "<li><b>Hospitalized with symptoms: </b>", ricov_sintomi_ultimo, " (",incr_ricoverati,")","</li>",
-           "<li><b>Home isolation: </b>", isol_domic_ultimo, " (",incr_isolamento,")","</li>",
-           "<li><b>Discharged recovered: </b>", dimessi_guariti_ultimo," (",incr_guariti,")","</li>",
-           "<li><b>Deceased: </b>", deceduti_ultimo, " (",incr_deceduti,")","</li>",
-           "<li><b>Death rate: </b>", tasso_mort_ita, "%","</li>",
-           "<li><b>Fatality rate: </b>", quoz_let_ita, "%","</li>",
-           "</ul>",
-           collapse = ""
-    )
-  )
-}
-
 
 # Do donut plot
 do_ciambella <- function(da, is.reg = F, reg, variable = "Cumulative positives"){
@@ -185,12 +159,10 @@ do_ciambella <- function(da, is.reg = F, reg, variable = "Cumulative positives")
     dperdonut <- da %>% 
       mutate(Key = as.character(Key)) %>% 
       group_by(data, Key) %>% 
-      summarise(Value = sum(Value)) %>% 
-      ungroup() %>% 
+      summarise(Value = sum(Value)) %>% ungroup() %>% 
       filter(data == max(data), Key %in% vartosel) %>% 
       arrange(Key) %>% 
-      mutate(percentage = round(Value/sum(Value),4)*100,
-             lab.pos = cumsum(percentage)-.5*percentage) %>%
+      mutate(percentage = round(Value/sum(Value),4)*100, lab.pos = cumsum(percentage)-.5*percentage) %>%
       mutate(stato = "Italy") %>% 
       rename(denominazione_regione = stato)
   }else{
@@ -203,14 +175,9 @@ do_ciambella <- function(da, is.reg = F, reg, variable = "Cumulative positives")
   }
   
   dperdonut %>% 
-    plot_ly(labels = ~Key, values = ~percentage, 
-            type = 'pie',
-            textposition = 'inside',
-            textinfo = 'label+percent',
-            insidetextfont = list(color = '#FFFFFF'),
-            hoverinfo = 'text',
-            hole = 0.6,
-            text = ~paste(Key, "\n", percentage, '%'),
+    plot_ly(labels = ~Key, values = ~percentage, type = 'pie', textposition = 'inside',
+            textinfo = 'label+percent', insidetextfont = list(color = '#FFFFFF'),
+            hoverinfo = 'text', hole = 0.6, text = ~paste(Key, "\n", percentage, '%'),
             marker = list(colors = colors,
                           line = list(color = '#FFFFFF', width = 1))) %>% 
     layout(title = paste0("Distribution of ", tolower(variable),  " in ", "<b>",unique(dperdonut$denominazione_regione), "</b>", " today"), 
@@ -264,12 +231,7 @@ do_barplot_ts <- function(da, is.reg = F, reg, variable = "Cumulative positives"
 
 
 # Do map
-draw_map <- function(dajoined, reg = NULL, varsel = "Cumulative positives", datasel = today()-1, dajoinedprov, is.density = F){
-  
-  # annots <- list(x = 1, y = -0.1, text = as.character(datasel), 
-  #                showarrow = F, xref='paper', yref='paper', 
-  #                xanchor='right', yanchor='auto', xshift=0, yshift=0,
-  #                font=list(size=15, color="black"))
+draw_map <- function(dajoined, reg = NULL, varsel = "Cumulative positives", datasel, dajoinedprov, is.density = F){
   
   leg_lab <- as.character(varsel)
   
@@ -283,53 +245,25 @@ draw_map <- function(dajoined, reg = NULL, varsel = "Cumulative positives", data
   }
   
   if(is.null(reg)){
-    p <- plot_ly(data = dajoined %>% 
-                   filter(Key == as.character(varsel), data == as.character(datasel)), 
-                 stroke = I("black"),
-                 split = ~NAME, color = ~Value, colors = "YlOrRd", alpha = 1, 
-                 text = ~paste0(NAME, "\n", Value, add_people),
-                 hoveron = "fills",
-                 hoverinfo = "text", 
-                 showlegend = F) %>%
-      layout(title = HTML(paste0("<b>",as.character(datasel),"</b>"))) %>% 
-      colorbar( title = list(text = paste0("<b>", leg_lab, "</b>")), len = 0.6)
+    datamap <- dajoined %>% filter(Key == as.character(varsel), data == as.character(datasel))
   }else{
-    
     if(varsel == "Cumulative positives"){
-      p <- plot_ly(data = dajoinedprov %>% 
-                     filter(Key == as.character(varsel), data == as.character(datasel), NAME %in% reg), 
-                   stroke = I("black"),
-                   split = ~NAME_2, color = ~Value, colors = "YlOrRd", alpha = 1, 
-                   text = ~paste0(NAME_2," (",NAME, ")","\n", Value, add_people),
-                   hoveron = "fills",
-                   hoverinfo = "text", showlegend = F) %>% 
-        layout(title = HTML(paste0("<b>",as.character(datasel),"</b>")))  %>% 
-        colorbar( title = list(text = paste0("<b>", leg_lab, "</b>")), len = 0.6)
+      datamap <- dajoinedprov %>% filter(Key == as.character(varsel), data == as.character(datasel), NAME %in% reg) %>% mutate(NAME = paste0(NAME_2, " (", NAME, ")"))
     }else{
-      p <- plot_ly(data = dajoined %>% 
-                     filter(Key == as.character(varsel), data == as.character(datasel), NAME %in% reg), 
-                   stroke = I("black"),
-                   split = ~NAME, color = ~Value, colors = "YlOrRd", alpha = 1, 
-                   text = ~paste0(NAME, "\n", Value, add_people),
-                   hoveron = "fills",
-                   hoverinfo = "text", showlegend = F) %>% 
-        layout(title = HTML(paste0("<b>",as.character(datasel),"</b>")))  %>% 
-        colorbar( title = list(text = paste0("<b>", leg_lab, "</b>")), len = 0.6)
-      if(length(reg) == 1){
-        p <- p %>% hide_colorbar()
-      }
+      datamap <- dajoined %>% 
+        filter(Key == as.character(varsel), data == as.character(datasel), NAME %in% reg)
     }
     
   }
   
-  # p %<>% layout(images = list(list(source = "www/StatGroup19Pic.jpg",xref = "x",
-  #                                  yref = "y",
-  #                                  x = 0,
-  #                                  y = 1,
-  #                                  sizex = 0.2,
-  #                                  sizey = 0.2,
-  #                                  opacity = 0.4,
-  #                                  layer = "below"))) 
+  p <- plot_ly(data = datamap, stroke = I("black"),
+               split = ~NAME, color = ~Value, colors = "YlOrRd", alpha = 1, type = "scatter",
+               text = ~paste0(NAME, "\n", Value, add_people), hoveron = "fills", hoverinfo = "text", showlegend = F) %>% 
+    layout(title = HTML(paste0("<b>",as.character(datasel),"</b>")))  %>% 
+    colorbar( title = list(text = paste0("<b>", leg_lab, "</b>")), len = 0.6)
+  if(length(reg) == 1){
+    p <- p %>% hide_colorbar()
+  }
   return(p)
   
   
@@ -340,30 +274,21 @@ draw_map <- function(dajoined, reg = NULL, varsel = "Cumulative positives", data
 do_ts <- function(da, is.reg = F, reg, varsel, datasel, is.incrementi=T, lag_incr = "daily variations", tipo.incremento = "Absolute"){
   
   if(!is.reg){
-    
-    dts <- da %>% 
-      mutate(Key = as.character(Key)) %>% 
-      group_by(data, Key) %>% 
-      summarise(Value = sum(Value)) %>% 
+    dts <- da %>% mutate(Key = as.character(Key)) %>% 
+      group_by(data, Key) %>% summarise(Value = sum(Value)) %>% 
       ungroup() %>% 
       filter(data <= as.character(datasel), Key == varsel) %>% 
       arrange(Key) %>% 
       mutate(denominazione_regione = "Italy") %>% drop_na()
-    
   }else{
-    
     dts <- da %>% 
-      filter(data <= as.character(datasel), Key == varsel, denominazione_regione %in% reg) %>% 
-      dplyr::select(data, denominazione_regione, Key, Value) %>% drop_na()
-    
+      filter(data <= as.character(datasel), Key == varsel, denominazione_regione %in% reg) %>% dplyr::select(data, denominazione_regione, Key, Value) %>% drop_na()
   }
   
   ylabel <- "Counts"
   
   if(is.incrementi){
-    dts %<>% 
-      arrange(denominazione_regione) %>% 
-      group_split(denominazione_regione) 
+    dts %<>% arrange(denominazione_regione) %>% group_split(denominazione_regione) 
     
     if(lag_incr == "daily variations"){
       dts %<>%  
@@ -407,22 +332,17 @@ do_ts <- function(da, is.reg = F, reg, varsel, datasel, is.incrementi=T, lag_inc
     if(tipo.incremento == "Absolute"){
       dts <- dts %>% dplyr::select(data, denominazione_regione, Key, IncrAss) %>% rename(Value = IncrAss)
     } else {
-      dts <- dts %>% dplyr::select(data, denominazione_regione, Key, IncrPerc) %>% rename(Value = IncrPerc) %>% 
-        filter(data > min(data))
+      dts <- dts %>% dplyr::select(data, denominazione_regione, Key, IncrPerc) %>% rename(Value = IncrPerc) %>% filter(data > min(data))
     }
-    
-    
   }
+  
   colors <- c("firebrick", "red", "orange3", "orange","gold")[1:length(reg)]
   
   dts %>% 
-    plot_ly(x = ~data, y = ~Value, type = 'scatter', mode = 'lines+markers', 
-            color = ~denominazione_regione, colors = colors) %>% 
-    layout(xaxis = list(title = ""), yaxis = list(title = ylabel), title = HTML(paste0("Time series of <b>",tolower(varsel),"</b>")),
-           legend = list(orientation = "h"))
+    plot_ly(x = ~data, y = ~Value, type = 'scatter', mode = 'lines+markers', color = ~denominazione_regione, colors = colors) %>% 
+    layout(xaxis = list(title = ""), yaxis = list(title = ylabel), title = HTML(paste0("Time series of <b>",tolower(varsel),"</b>")), legend = list(orientation = "h"))
   
 }
-
 
 # Print sign header
 paste_signpercent <- function(x_oggi,x_ieri){
@@ -431,22 +351,12 @@ paste_signpercent <- function(x_oggi,x_ieri){
   return(paste0(simbolo, round(incr, 2),"% w.r.t. yesterday"))
 } 
 
-
 # Prepare data for model regional level
 prepdata_for_model <- function(dftoprep, resdata){
-  ag <- dftoprep %>% 
-    mutate(denominazione_regione = ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.",
-                                                 ifelse(denominazione_regione == "Emilia-Romagna", "Emilia Romagna",
-                                                        denominazione_regione))) %>% 
-    arrange(denominazione_regione, data)
   
-  # Label
-  resdata[30,1] <- "Trentino-Alto Adige"
-  resdata[10,1] <- "Valle d'Aosta"
-  
-  da <- ag %>% 
+  da <- dftoprep %>% arrange(denominazione_regione, data) %>% 
     left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
-    mutate(ti = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
+    mutate(ti = as.numeric(unclass(factor(data)))) %>% 
     rename(ti_orig = data, region = denominazione_regione, residents = totale) 
   
   return(da)
@@ -460,7 +370,6 @@ run_growth_model <- function(da, reg=NULL, wh="Cumulative positives", horizon = 
   if(is.null(reg)){
     dat <- aggregate(da %>% dplyr::select(-region, -ti, -residents, -ti_orig), list(da$ti), sum)
     colnames(dat)[1] <- "ti"
-    
   }else{
     dat <- da[da$region==reg,]
   }
@@ -496,123 +405,82 @@ run_growth_model <- function(da, reg=NULL, wh="Cumulative positives", horizon = 
   rrs <- 500
   
   np <- tryCatch(
-    growthGLM(count = pc, ti = ti, monotone = mnt, tk = NA, family = fam, maxiter = 2000, runs = rrs, tPred = timax, nBoot = 10000,
-              #,nmirror=8
-              ),
-    #warning = function(w){print("Something happened")},
+    growthGLM(count = pc, ti = ti, monotone = mnt, tk = NA, family = fam, maxiter = 2000, runs = rrs, tPred = timax, nBoot = 10000),
     error = function(e){return("Error")}
   )
   
-    
   # Prediction
   y <- cbind(np$low, np$linPred, np$up)
   colnames(y) <- c("ly", "y", "uy")
-  # ydiff <- cbind(np$lowdiff, diff(np$linPred), np$updiff)
-  # colnames(ydiff) <- c("ly", "y", "uy")
   #
   x <- seq(min(ti_orig_out), max(ti_orig_out[ti_orig_out<=reduce_obs]) + horizon, 1)
   x1 <- c(ti_orig_out[2:mti], rep(NA, horizon))
   tall <- c(ti_orig_out, rep(NA, nrow(y)-length(pc_all)))
-  #pc_out <- c(diff(pc), rep(NA, horizon))
-  
-  # Data frame observed and predicted variation
-  #cc1<-data.frame(x1 = x1, pc = pc_out, x = x[-1], ydiff)
   
   # Data frame observed and predicted total
-  cc<-data.frame(x1 = c(x1[1] - 1, x1), pc = c(pc,rep(NA,horizon)), 
-                 pc_all = c(pc_all,rep(NA,nrow(y)-length(pc_all))), t_all = tall,
-                 x = x, y)
+  cc<-data.frame(x1 = c(x1[1] - 1, x1), pc = c(pc,rep(NA,horizon)), pc_all = c(pc_all,rep(NA,nrow(y)-length(pc_all))), t_all = tall, x = x, y)
   
-  ooo <- list(cc=cc, R2 = list(round(np$R2, 4)), pars = list(np$pars), stderrs = list(np$se), monot = mnt, 
-              fam = fam, NoConv = np$NoConv, BandsError = np$BandsError)
-    
-  
+  ooo <- list(cc=cc, R2 = round(np$R2, 4), pars = np$pars, stderrs = np$se, monot = mnt, fam = fam, NoConv = np$NoConv, BandsError = np$BandsError)
+
   return(ooo)
 }
 
-
 # Plot result model (return plot) new
-plot_out_model <- function(outputmod, horizon = 15, what = "Cumulati", VarModel = "Cumulative positives", showbands = T, reg = "Italy"){
+plot_out_model <- function(outputmod, horizon = 15, VarModel = "Cumulative positives", showbands = T, reg = "Italy"){
   
-  ses <- outputmod$stderrs[[1]]
+  ses <- outputmod$stderrs
+  dd <- outputmod$cc
+  ylabel <- "Daily counts"
   
-  if(what == "Cumulati"){
-    dd <- outputmod$cc #%>% 
-      # mutate(uy = ifelse(x<=max(x1, na.rm = T), NA, uy),
-      #        ly = ifelse(x<=max(x1, na.rm = T), NA, ly))
-    ylabel <- "Daily counts"
-    if(VarModel %in% c("Deceased", "Discharged recovered", "Cumulative positives")){
-      ylabel <- "Cumulative counts"
-    }
+  if(VarModel %in% c("Deceased", "Discharged recovered", "Cumulative positives")){
+    ylabel <- "Cumulative counts"
   }
-  # if(what == "Nuovi"){
-  #   dd <- outputmod$cc1 #%>% 
-  #     # mutate(uy = ifelse(x<=max(x1, na.rm = T), NA, uy),
-  #     #        ly = ifelse(x<=max(x1, na.rm = T), NA, ly))
-  #   ylabel <- "Daily variations"
-  #   if(VarModel %in% c("Deceased", "Discharged recovered", "Cumulative positives")){
-  #     ylabel <- "Daily counts"
-  #   }
-  # }
-  
+
   namemodel <- ifelse(outputmod$monot, "Richards", "Mirrored Richards")
   idx <- min(which(is.na(dd$pc_all)))-1
-  pp <- plot_ly(dd,
-                x=~t_all, y = ~pc_all, name = 'Observed', color = I("black"),
-                type = 'scatter', mode = 'lines+markers', alpha = 0.6) %>%
-    add_trace(data = dd %>% filter(x <= max(x1, na.rm = T) + horizon),
-              x=~x, y = ~y, name = namemodel, type = "scatter",
-              mode = 'lines', alpha = 1,
-              line = list(width = 3, color = "red")) %>%
-    layout(title = paste0("<b align='center'>Fitted and observed values for ","\n", VarModel, " - ",reg, "</b>"), 
-           xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
+  ttl <- paste0("<b align='center'>Fitted and observed values for ","\n", VarModel, " - ",reg, "</b>") 
+ 
+  pp <- plot_ly(dd, x=~t_all, y = ~pc_all, name = 'Observed', color = I("black"), type = 'scatter', mode = 'lines+markers', alpha = 0.6) %>%
+    add_trace(data = dd %>% filter(x <= max(x1, na.rm = T) + horizon), x=~x, y = ~y, name = namemodel, type = "scatter",
+              mode = 'lines', alpha = 1, line = list(width = 3, color = "red")) %>%
+    layout(title = ttl, xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
   
   if(!outputmod$NoConv){
     if(sum(is.na(ses)|is.nan(ses)) == 0){
-      pp <- plot_ly(data = dd %>% filter(x <= max(x1, na.rm = T) + horizon),
-                    x=~x, y = ~y, type = "scatter", mode = 'lines',
+      pp <- plot_ly(data = dd %>% filter(x <= max(x1, na.rm = T) + horizon), x=~x, y = ~y, type = "scatter", mode = 'lines',
                     line = list(width = 3, color = "red"), name = namemodel) %>%
         add_ribbons(data = dd %>% filter(x <= max(x1, na.rm = T) + horizon),
-                    ymin = ~ly, ymax = ~uy, name = '99% Conf. Int.', color = I('rgba(250,128,114, 0.8)'),
-                    line = list(width = 0)) %>% 
+                    ymin = ~ly, ymax = ~uy, name = '99% Conf. Int.', color = I('rgba(250,128,114, 0.8)'), line = list(width = 0)) %>% 
         add_trace(data = dd, x=~t_all, y = ~pc_all,  name = "Observed", alpha = 0.7, mode = 'lines+markers', 
                   line = list(color = "black", width=0.5), marker = list(color = "black")) %>%
-        layout(title = paste0("<b align='center'>Fitted and observed values for ","\n", VarModel, " - ",reg,"</b>"), 
-               xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
+        layout(title = ttl, xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
     }
   }  else{
     if(sum(is.na(ses)|is.nan(ses)) == 0 & showbands){
-      pp <- plot_ly(dd %>% filter(x <= max(x1, na.rm = T) + horizon), 
-                   x=~x, y = ~y, type = "scatter", mode = 'lines',
-                   line = list(width = 3, color = "red"), name = namemodel) %>%
-        add_ribbons(ymin = ~ly, ymax = ~uy, name = '99% Conf. Int.', color = I('rgba(250,128,114, 0.8)'),
-                    line = list(width = 0)) %>% 
+      pp <- plot_ly(dd %>% filter(x <= max(x1, na.rm = T) + horizon), x=~x, y = ~y, type = "scatter", mode = 'lines',
+                    line = list(width = 3, color = "red"), name = namemodel) %>%
+        add_ribbons(ymin = ~ly, ymax = ~uy, name = '99% Conf. Int.', color = I('rgba(250,128,114, 0.8)'), line = list(width = 0)) %>% 
         add_trace(data = dd, x=~t_all, y = ~pc_all,  name = "Observed", alpha = 0.7, mode = 'lines+markers', 
                   line = list(color = "black", width=0.5), marker = list(color = "black")) %>%
-        layout(title = paste0("<b align='center'>Fitted and observed values for ","\n", VarModel, " - ", reg, "</b>"), 
-               xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
+        layout(title = ttl, xaxis = list(title = ""), yaxis = list(title = ylabel), legend = list(x = 0, y = 1))
     } 
   }
-  
   
   return(pp)
   
 }
 
-
-
+# Datatable output
 DT_out_model <- function(outputmod, horizon = 15, VarModel = "Cumulative positives", showbands = F, reg = "Italy") {
   
-  ses <- outputmod$stderrs[[1]]
+  ses <- outputmod$stderrs
   
   capts_out <-  htmltools::tags$caption(
-    style = 'caption-side: bottom; text-align: left;',
-    'Table: ', htmltools::em(paste0('Predictions for ', tolower(VarModel), ' - ', reg,'.'))
+    style = 'caption-side: bottom; text-align: left;', 'Table: ', htmltools::em(paste0('Predictions for ', tolower(VarModel), ' - ', reg,'.'))
   )
   
   
-  ddt <- outputmod$cc %>% dplyr::select(t_all, pc_all, x, y) %>%
-                     set_colnames(value = c("Date", "Observed", "Data2", "Predicted")) %>%
+  ddt <- outputmod$cc %>% dplyr::select(t_all, pc_all, x, y) %>% set_colnames(value = c("Date", "Observed", "Data2", "Predicted")) %>%
     filter(between(Data2, max(Date, na.rm = T) -2, max(Date, na.rm = T) + horizon)) %>%
     dplyr::select(-Date) %>%
     mutate_if(is.numeric, round) %>% 
@@ -621,34 +489,22 @@ DT_out_model <- function(outputmod, horizon = 15, VarModel = "Cumulative positiv
   
   if(!outputmod$NoConv){
     if(sum(is.na(ses)|is.nan(ses)) == 0){
-      
-      ddt <- bind_cols(ddt, outputmod$cc %>% 
-                         filter(x %in% ddt$Date) %>% 
-                         dplyr::select(ly, uy) %>% 
-                         set_colnames(value = c("Min.", "Max."))) %>%
+      ddt <- bind_cols(ddt, outputmod$cc %>% filter(x %in% ddt$Date) %>% dplyr::select(ly, uy) %>% set_colnames(value = c("Min.", "Max."))) %>%
         mutate_if(is.numeric, round) %>% 
         dplyr::select(Date, Observed, Predicted, `Min.`, `Max.`)
     }
-    
   } else{
     if(sum(is.na(ses)|is.nan(ses)) == 0 & showbands){
       
-      ddt <- bind_cols(ddt, outputmod$cc %>% 
-                         filter(x %in% ddt$Date) %>% 
-                         dplyr::select(ly, uy) %>% 
-                         set_colnames(value = c("Min.", "Max."))) %>%
+      ddt <- bind_cols(ddt, outputmod$cc %>% filter(x %in% ddt$Date) %>% dplyr::select(ly, uy) %>% set_colnames(value = c("Min.", "Max."))) %>%
         mutate_if(is.numeric, round) %>% 
         dplyr::select(Date, Observed, Predicted, `Min.`, `Max.`)
     }
   }
   
-  
-  
-  ddtt <- datatable(ddt, rownames = FALSE, class = 'cell-border stripe',
+  ddtt <- datatable(ddt, rownames = FALSE, class = 'cell-border stripe',  caption = capts_out,
                     options = list(dom = 'tpl', pageLength = 5, scrollX = T, lengthMenu = c(5,10,15,20),
-                                   columnDefs = list(list(className = 'dt-center', targets = "_all"))),
-                    #container = sketch, 
-                    caption = capts_out)
+                                   columnDefs = list(list(className = 'dt-center', targets = "_all"))))
   
   
   return(ddtt)
@@ -660,60 +516,42 @@ summary_out_model <- function(outputmod, VarModel = "Cumulative positives", resd
   
   famout <- outputmod$fam
   
-  resdata[30,1]="Trentino-Alto Adige"
-  resdata[10,1]="Valle d'Aosta"
-  
   mx_sel <- 6*10^7
   if(is.reg) mx_sel <- resdata[resdata$Territorio == reg, 2]
   
-  
-  # omod <- outputmod$cc1
   # 
   ti_orig_out <- na.omit(outputmod$cc$t_all)
-  # ti <- as.numeric(unclass(factor(ti_orig_out)))
   # 
   est_pick <- ti_orig_out[which.max(c(outputmod$cc$pc_all[1],diff(outputmod$cc$y)))]
-  # estmax_val_l <- round(omod$ly[which.max(omod$y)])
-  # estmax_val <- round(max(omod$y))
-  # estmax_val_u <- round(omod$uy[which.max(omod$y)])
-  # obsmax_val <- omod$pc[which.max(omod$y)]
-  
-  
   # 
   tasso_come <- ifelse(outputmod$monot, "Richards", "Mirrored Richards")
-  
   # 
   pdate <- paste_eng_date(est_pick)
  
-  coverage <- ((sum((outputmod$cc$ly <= outputmod$cc$pc_all) & (outputmod$cc$uy >= outputmod$cc$pc_all), na.rm = T))/sum(!is.na(outputmod$cc$pc_all))) %>%
-    round(2)
+  coverage <- ((sum((outputmod$cc$ly <= outputmod$cc$pc_all) & (outputmod$cc$uy >= outputmod$cc$pc_all), na.rm = T))/sum(!is.na(outputmod$cc$pc_all))) %>% round(2)
     
   # Asintoto cumulati
-  asi_est_l <- exp(outputmod$pars[[1]][1]-1.96*outputmod$stderrs[[1]][1])
-  errs_l <- (outputmod$pars[[1]][length(outputmod$pars[[1]])]-1.96*outputmod$stderrs[[1]][length(outputmod$pars[[1]])]) %>% exp
-  #errs <- outputmod$pars[[1]][length(outputmod$pars[[1]])] %>% exp()
+  asi_est_l <- exp(outputmod$pars[1]-1.96*outputmod$stderrs[1])
+  errs_l <- (outputmod$pars[length(outputmod$pars)]-1.96*outputmod$stderrs[length(outputmod$pars)]) %>% exp
   asi_est_l <- (asi_est_l-1.96*ifelse(famout == "Poisson",sqrt(asi_est_l),sqrt(asi_est_l + (asi_est_l^2)/errs_l))) %>% round
   idx <- min(which(is.na(outputmod$cc$pc)))-1
   cond <- asi_est_l < outputmod$cc$pc[idx]
   asi_est_l <- ifelse(cond, outputmod$cc$pc[idx], asi_est_l)
   
-  
-  asi_est_u <- exp(outputmod$pars[[1]][1]+1.96*outputmod$stderrs[[1]][1])
+  asi_est_u <- exp(outputmod$pars[1]+1.96*outputmod$stderrs[1])
   asi_est_u <- (asi_est_u+1.96*ifelse(famout == "Poisson",sqrt(asi_est_u),sqrt(asi_est_u + (asi_est_u^2)/errs_l))) %>% round
   asi_est_u <- ifelse(asi_est_u > mx_sel, mx_sel, asi_est_u)
-  asi_est <- ifelse(cond, outputmod$cc$pc[idx], round(exp(outputmod$pars[[1]][1])))
+  asi_est <- ifelse(cond, outputmod$cc$pc[idx], round(exp(outputmod$pars[1])))
   
   
-  if(VarModel %in% c("Deceased", "Discharged recovered", "Cumulative positives") & !(is.na(outputmod$stderrs[[1]][1])) & (asi_est_u>=asi_est_l)){
-    
-    
+  if(VarModel %in% c("Deceased", "Discharged recovered", "Cumulative positives") & !(is.na(outputmod$stderrs[1])) & (asi_est_u>=asi_est_l)){
     out_string <- paste0(
       paste0('<h3 align = "center"><b>', famout, " - ", tasso_come, ': </b></h3>'),
-      "<br/>",#'<ul>',
+      "<br/>",
       '<p align="center"><b>Estimated peak of daily variations: </b></p>', '<p align="center">',pdate, "</p>", "<br/>",
       '<p align="center"><b>Estimated upper asymptote of cumulative cases: </b></p>', 
       "<p align='center'>", asi_est, paste0(" (not less than ", asi_est_l, ", no more than ", asi_est_u, ")"),"</p>", "<br/>",
-      '<p align="center"><b>Goodness of fit: </b></p>', '<p align="center">', outputmod$R2[[1]], '</p>',"<br/>",
+      '<p align="center"><b>Goodness of fit: </b></p>', '<p align="center">', outputmod$R2, '</p>',"<br/>",
       '<p align="center"><b>Coverage: </b></p>', '<p align="center">', coverage*100,"%", "</p>",
       collapse = ""
     )
@@ -722,16 +560,13 @@ summary_out_model <- function(outputmod, VarModel = "Cumulative positives", resd
       paste0('<h3 align="center"><b>', famout, " - ", tasso_come, ': </b></h3>'),
       "<br/>",
       '<p align="center"><b>Estimated peak of daily variations: </b></p>', '<p align="center">', pdate, "</p><br/>",
-      '<p align="center"><b>Goodness of fit:</b></p>', '<p align="center">', outputmod$R2[[1]],"</p><br/>",
+      '<p align="center"><b>Goodness of fit:</b></p>', '<p align="center">', outputmod$R2,"</p><br/>",
       '<p align="center"><b>Coverage: </b></p>', "<p align='center'>", coverage*100,"%", "</p>",
       collapse = ""
     )
-    
   }
-  
   return(HTML(out_string))
 }
-
 
 # Return current situa
 return_current_situa <- function(da, TotPop){
@@ -793,35 +628,25 @@ return_current_situa <- function(da, TotPop){
   )
 }
 
-
 # Show raw data
 show_raw_data <- function(daita, dareg){
-  Dt_out_raw <- daita %>% 
-    rename(Date = data, Region = stato) %>% 
+  Dt_out_raw <- daita %>% rename(Date = data, Region = stato) %>% 
     mutate(Region = "Italy",
            `New deaths` = c(Deceased %>% first, diff(Deceased))) %>% 
     dplyr::select(Date, Region, `Cumulative positives`, `New positives`, `Deceased`, `New deaths`, 
                   `Current positives`, `Current hospitalized`, `Hospitalized with symptoms`, 
                   `Intensive care`, `Home isolation`, `Discharged recovered`, Swabs) %>% 
-    bind_rows(dareg %>% 
-                spread(Key, Value) %>% 
+    bind_rows(dareg %>% spread(Key, Value) %>% 
                 rename(Date = data, Region = denominazione_regione) %>% 
-                group_by(Region) %>% 
-                mutate(`New deaths` = c(Deceased %>% first, diff(Deceased))) %>% 
+                group_by(Region) %>%  mutate(`New deaths` = c(Deceased %>% first, diff(Deceased))) %>% 
                 ungroup() %>% 
                 dplyr::select(Date, Region, `Cumulative positives`, `New positives`, `Deceased`, `New deaths`, 
                               `Current positives`, `Current hospitalized`, `Hospitalized with symptoms`, 
-                              `Intensive care`, `Home isolation`, `Discharged recovered`, Swabs)
-              
-    ) 
+                              `Intensive care`, `Home isolation`, `Discharged recovered`, Swabs)) 
   
   
-  Dt_out_raw$Region <- factor(Dt_out_raw$Region,
-                               levels = c("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta",
-                                          "Emilia-Romagna", "Friuli Venezia Giulia", "Veneto", "Trentino-Alto Adige",
-                                          "Lazio", "Marche", "Toscana", "Umbria",
-                                          "Abruzzo", "Basilicata", "Calabria",
-                                          "Campania", "Molise", "Puglia","Sardegna", "Sicilia"))
+  Dt_out_raw$Region <- factor(Dt_out_raw$Region, levels = c("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta",  "Emilia-Romagna", "Friuli Venezia Giulia", "Veneto", "Trentino-Alto Adige",
+                                          "Lazio", "Marche", "Toscana", "Umbria","Abruzzo", "Basilicata", "Calabria","Campania", "Molise", "Puglia","Sardegna", "Sicilia"))
   
   Dt_out_raw %<>% arrange(desc(Date), Region) 
   
@@ -831,11 +656,10 @@ show_raw_data <- function(daita, dareg){
 table_raw_data <- function(tab, datesel, resdata){
   
   Capienza <- tibble(Region = sort(as.character(unique(tab$Region))), 
-                         `Capacity ICU` = c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338)))
-  resdata[c(10, 30, 43, 48),1] <- c("Valle d'Aosta", "Trentino-Alto Adige", "Friuli Venezia Giulia", "Emilia-Romagna")
+                     `Capacity ICU` = c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338)))
   
-  raw_app <- tab %>% group_by(`Region`) %>% 
-    arrange(Date) %>% 
+  raw_app <- tab %>% mutate(Region = as.character(Region)) %>% 
+    group_by(`Region`) %>%
     mutate(Incrpos = c(`New positives`[1], diff(`New positives`)),
            Incrdeaths = c(`New deaths`[1], diff(`New deaths`))) %>% 
     ungroup() %>% 
@@ -849,10 +673,6 @@ table_raw_data <- function(tab, datesel, resdata){
            `Curr. Pos. (x 1000 residents)` = round((`Current positives`/Residents)*1000,2),
            `ICU/capacity (%)` = round((`Intensive care`/`Capacity ICU`)*100,2))
   
-  
-  # if(is.density){
-  #   raw_app[,3:8] <- round(raw_app[,3:8]/raw_app$totale*100,3)
-  # } 
   dt_out <- raw_app %>% 
     filter(Date == datesel) %>% 
     dplyr::select(-Date) %>% 
@@ -866,7 +686,7 @@ table_raw_data <- function(tab, datesel, resdata){
                   "$('body').css({'font-family': 'Calibri'});",
                   "}"
                 ), pageLength = 20,
-                dom = 'tp', columnDefs = list(
+                dom = 't', columnDefs = list(
                   list(className = 'dt-center', targets = "_all"),
                   list(visible = F, targets = c(7, 8,9,10))
                 ))) %>% 
@@ -1111,7 +931,7 @@ the premises and the prohibition of stopping in the immediate vicinity of the pr
       name = "Decree-Law (Dl) 16th May 2020 #RilanciaItalia",
       label = "Decree-Law",
       description = "Urgent measures concerning health, work support and economy, besides social policies related to the 
-epidemiological COVID-19 emergency through the allocation of 55 billions.",
+epidemiological COVID-19 emergency through the allocation of 55 billions of euros.",
       link = "http://www.governo.it/it/articolo/comunicato-stampa-del-consiglio-dei-ministri-n-45/14602",
       status = "active",
       flag = TRUE
@@ -1133,7 +953,6 @@ including further urgent measures (20A02717).",
   return(decrees)
 }
 
-
 # Decree plot
 plot_decree <- function(decrees){
   
@@ -1142,7 +961,6 @@ plot_decree <- function(decrees){
     #colnames(dd) <- c("Date", "Name", "Label", "Descr", "Link")
     return(dd)
   }) %>% reduce(.f = rbind) %>% as_tibble() %>% mutate(position = c(rep(c(1,-1),11),1))
-  
   
   
   js <- "
@@ -1156,23 +974,15 @@ function(el, x) {
   urls <- df$Link %>% as.character()
   p <- df %>% 
     plot_ly(x = ~Date, y = ~0, color = ~Label, colors = c("firebrick", "red", "orange3", "orange","gold"),
-            text = ~paste0(Date, "\n<b>", Name, ":</b>\n", Description), 
-            type = "scatter", mode = "markers", showlegend = T,
-            marker = list(size = 20, line = list(color = "black", width = 2)), 
-            hoverinfo = "text", customdata = urls) %>% 
-    layout(title = paste0("<b>Timeline of Ministerial Decrees related to COVID-19 epidemic</b>", "\n",
-                          "Click on the events to read the official documents"), 
+            text = ~paste0(Date, "\n<b>", Name, ":</b>\n", Description), type = "scatter", mode = "markers", showlegend = T,
+            marker = list(size = 20, line = list(color = "black", width = 2)), hoverinfo = "text", customdata = urls) %>% 
+    layout(title = paste0("<b>Timeline of Ministerial Decrees related to COVID-19 epidemic</b>", "\n", "Click on the events to read the official documents"), 
            legend = list(x = 0.5, title = "", orientation = "h", xanchor = 'center'),
-           xaxis = list(title = "", showgrid=F), yaxis = list(title = "",
-                                                              showgrid = FALSE,
-                                                              showline = FALSE,
-                                                              showticklabels = FALSE)) %>% htmlwidgets::onRender(js)
-  
+           xaxis = list(title = "", showgrid=F), yaxis = list(title = "", showgrid = FALSE, showline = FALSE, showticklabels = FALSE)) %>% htmlwidgets::onRender(js)
   return(p)
 }
 
-
-
+# Ratio plot
 plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity", plot_type){
 
   if(!is.reg){
@@ -1187,16 +997,15 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
     nm <- reg
   }
 
-  da_plot %<>%
-    group_by(denominazione_regione) %>%
+  da_plot %<>% 
     mutate(`Daily swabs` = c(Swabs[1], diff(Swabs)), `Daily tests` = c(`Tested cases`[1], diff(`Tested cases`)),
            `Positivity1` = `New positives`/`Daily swabs`,
            `Positivity2` = `New positives`/`Daily tests`,
            `Healing` = `Discharged recovered`/`Cumulative positives`,
            `Fatality` = Deceased/`Cumulative positives`,
            `Severity` = `Intensive care`/`Current hospitalized`
-    ) %>%
-    ungroup()
+    ) %>% ungroup()
+  
   col_tosel_bar <- c("New positives","Daily swabs", "Daily tests")
   if(type_of_ratio == "Severity") col_tosel_bar <-  c("Intensive care","Current hospitalized")
   if(type_of_ratio == "Fatality") col_tosel_bar <-  c("Deceased","Cumulative positives")
@@ -1207,77 +1016,43 @@ plot_ratios <- function(da, is.reg = F, reg = NULL, type_of_ratio = "Positivity"
   if(plot_type == "barplot"){
     ttl <- paste0("Composition of ", tolower(type_of_ratio), " rate", "\n <b>",nm,"</b>")
     if(type_of_ratio == "Positivity"){
-      da_plot %<>%
-        dplyr::select(data, denominazione_regione, nvar[[1]], nvar[[2]], nvar[[3]])
-      
-      p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop = T], type = "bar",
-                       name = as.character(nvar[[1]]), marker = list(color = "darkorange")) %>%
-        add_trace(y = da_plot[,4,drop = T], name = as.character(nvar[[2]]),
-                  marker = list(color = "firebrick")) %>% 
-        add_trace(y = da_plot[,5,drop = T], name = as.character(nvar[[3]]),
-                  marker = list(color = "grey")) %>% 
-        layout(title =  ttl,  xaxis = list(title = ""), legend = list(x = 0, y = 1),
-               yaxis = list(title = "Counts"))
+      da_plot %<>% dplyr::select(data, denominazione_regione, nvar[[1]], nvar[[2]], nvar[[3]])
+      p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop = T], type = "bar", name = as.character(nvar[[1]]), marker = list(color = "darkorange")) %>%
+        add_trace(y = da_plot[,4,drop = T], name = as.character(nvar[[2]]), marker = list(color = "firebrick")) %>% 
+        add_trace(y = da_plot[,5,drop = T], name = as.character(nvar[[3]]), marker = list(color = "grey")) %>% 
+        layout(title =  ttl,  xaxis = list(title = ""), legend = list(x = 0, y = 1), yaxis = list(title = "Counts"))
     } else{
-      da_plot %<>%
-        dplyr::select(data, denominazione_regione, nvar[[1]], nvar[[2]])
-      
-      p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop = T], type = "bar",
-                       name = as.character(nvar[[1]]), marker = list(color = "darkorange")) %>%
-        add_trace(y = da_plot[,4,drop = T], name = as.character(nvar[[2]]),
-                  marker = list(color = "firebrick")) %>% 
-        layout(title =  ttl,  xaxis = list(title = ""), legend = list(x = 0, y = 1),
-               yaxis = list(title = "Counts"), autosize = F)
-      
+      da_plot %<>% dplyr::select(data, denominazione_regione, nvar[[1]], nvar[[2]])
+      p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop = T], type = "bar", name = as.character(nvar[[1]]), marker = list(color = "darkorange")) %>%
+        add_trace(y = da_plot[,4,drop = T], name = as.character(nvar[[2]]), marker = list(color = "firebrick")) %>% 
+        layout(title =  ttl,  xaxis = list(title = ""), legend = list(x = 0, y = 1), yaxis = list(title = "Counts"), autosize = F)
     }
-  
   }
   
   if(plot_type == "ts"){
     ttl <- paste0("Time series of ", tolower(type_of_ratio), " rate", "\n <b>",nm,"</b>")
     if(type_of_ratio == "Positivity"){
-      da_plot %<>%
-        dplyr::select(data, denominazione_regione, `Positivity1`, `Positivity2`)
+      da_plot %<>% dplyr::select(data, denominazione_regione, `Positivity1`, `Positivity2`)
       p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop=T]*100,
                        text = paste0(format(da_plot$data, "%b %d, %Y"), "\n", round(da_plot[,3,drop=T]*100,2),"%"),
-                       hoverinfo = "text", name = "with dayly swabs",
-                       type = "scatter",mode="lines+markers",
-                       marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
-        add_trace(y = ~da_plot[,4,drop=T]*100, type = "scatter",mode="lines+markers",
-                  marker = list(color = "grey"), line = list(color = "grey"), name = "with daily tests") %>% 
-        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1),
-               yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
+                       hoverinfo = "text", name = "with dayly swabs", type = "scatter",mode="lines+markers", marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
+        add_trace(y = ~da_plot[,4,drop=T]*100, type = "scatter",mode="lines+markers", marker = list(color = "grey"), line = list(color = "grey"), name = "with daily tests") %>% 
+        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1), yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
     } else{
-      da_plot %<>%
-        dplyr::select(data, denominazione_regione, rlang::syms(type_of_ratio)[[1]])
+      da_plot %<>% dplyr::select(data, denominazione_regione, rlang::syms(type_of_ratio)[[1]])
       p_out <- plot_ly(x = da_plot$data, y = da_plot[,3,drop=T]*100,
                        text = paste0(format(da_plot$data, "%b %d, %Y"), "\n", round(da_plot[,3,drop=T]*100,2),"%"),
-                       hoverinfo = "text",
-                       type = "scatter",mode="lines+markers",
-                       marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
-        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1),
-               yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
+                       hoverinfo = "text", type = "scatter",mode="lines+markers", marker = list(color = "firebrick"), line = list(color = "firebrick")) %>%
+        layout(title =  ttl, xaxis = list(title = ""), legend = list(x = 0, y = 1), yaxis = list(title = paste0(type_of_ratio, " rate (%)")))
     }
-    
   }
-
   return(p_out)
-
 }
 
 ### ICU predictions
 dataprep_terapie <- function(dftoprep, resdata){
   
-  ag <- dftoprep %>% 
-    mutate(denominazione_regione = ifelse(denominazione_regione == "Trentino-Alto Adige", "TrentinoAltoAdige", 
-                                          ifelse(denominazione_regione == "Friuli Venezia Giulia", "Friuli V. G.", denominazione_regione))) %>% 
-    arrange(denominazione_regione, data)
-  
-  # 
-  resdata[10,1] <- "Valle d'Aosta"
-  resdata[48,1] <- "Emilia-Romagna"
-  
-  da <- ag %>% dplyr::select(data, denominazione_regione, `Intensive care`) %>% 
+  da <- dftoprep %>% arrange(denominazione_regione, data) %>% dplyr::select(data, denominazione_regione, `Intensive care`) %>% 
     left_join(resdata, by = c("denominazione_regione" = "Territorio")) %>% 
     mutate(data = as.numeric(unclass(factor(data))), denominazione_regione = factor(denominazione_regione)) %>% 
     rename(ti = data, region = denominazione_regione, icu = `Intensive care`, residents = totale) 
@@ -1294,7 +1069,6 @@ dataprep_terapie <- function(dftoprep, resdata){
   # Capacity
   da.pred$capienza <- c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338))
   da$capienza <- rep(da.pred$capienza,each=max(da$ti))
-  
   
   return(list(da = da, dapred = da.pred))
 }
@@ -1333,8 +1107,6 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   pr2 <- exp(predict(fit2,dattopred))
   
   ba <- dat %>% group_split(region) %>% sapply(FUN = fup, simplify = T) %>% t
-  
-  # optW (unique)
   
   d2 <- dat[dat$ti<max(dat$ti),]
   fit.loss <- glmer(icu~ti+I(ti^2/100)+offset(log(residents))+((1+ti)|region)+((0+I(ti^2/100))|region),data=d2,family=poisson)
@@ -1382,3 +1154,58 @@ modello_terapia_intensiva <- function(dat = da, dattopred = da.pred){
   return(pr.oggi)
   
 }
+
+tab_tomor_ICU <- function(tab1, tab2){
+  capts_out <-  htmltools::tags$caption(
+    style = 'caption-side: bottom; text-align: left;',
+    'Table: ', htmltools::em(HTML(paste0("ICU predictions by region, 99% confidence bounds and overall capacity. Best case, HSS Pressure and Worst case are obtained by dividing the lower bounds, the prediction and the upper bounds by the capacity. THey reflect the pressure on the regional health care system.<br/>'Prediction' is yellow if an improvement is expected w.r.t. yesterday, viceversa is for the red. 'HSS Pressure (%)' is coloured proportionally to the number of occupancies.")))
+  )
+  #   
+  varwrtoday <- (tab2 %>% filter(DataPred == max(DataPred)) %$% Prediction ) - tab1$Prediction
+  tabICU <- tab1 %>%
+    mutate(`Best case (%)` = round(`Lower bound`/Capacity*100,2),
+           `HSS Pressure (%)` = round(Prediction/Capacity*100, 2),
+           `Worst case (%)` = round(`Upper bound`/Capacity*100,2),
+           IsBetterPred = varwrtoday) %>%
+    dplyr::select(-DataPred) %>%
+    mutate(
+      Region = as.character(Region),
+      Region = ifelse(Region == "TrentinoAltoAdige", "Trentino-Alto Adige", Region),
+      Region = ifelse(Region == "Friuli V. G.", "Friuli Venezia Giulia", Region)
+    )
+
+  out <- tabICU %>%
+    datatable(rownames = F, caption = capts_out,
+              options = list(dom = 'tpl', pageLength = 10, scrollX = T, lengthMenu = c(10, 15, 20),
+                             columnDefs = list(list(className = 'dt-center', targets = "_all"), list(visible = F, targets = 8)))) %>%
+    formatStyle(columns = "Prediction", valueColumns = "IsBetterPred",fontWeight = "bold",
+                backgroundColor = styleInterval(0, c("lemonchiffon", "salmon")), color = "black") %>%
+    formatStyle(columns = "HSS Pressure (%)", background = styleColorBar(c(0,100), "salmon"), backgroundSize = '98% 88%',
+                backgroundRepeat = 'no-repeat', backgroundPosition = 'center') %>%
+    formatStyle(columns = "Region", fontWeight = "bold")
+  
+  return(out)
+}
+
+prep_bar_ICU <- function(tab1, datireg){
+  dataICUbar <- tab1 %>%
+    mutate(Region = as.character(Region),
+           Region = ifelse(Region == "Emilia Romagna", "Emilia-Romagna", Region),
+           Region = ifelse(Region == "Friuli V. G.", "Friuli Venezia Giulia", Region),
+           Region = ifelse(Region == "TrentinoAltoAdige", "Trentino-Alto Adige", Region)) %>%
+    rename(denominazione_regione = Region, data = DataPred) %>%
+    left_join(datireg %>% spread(Key, Value) %>% filter(data <= max(tab1$DataPred)) %>% dplyr::select(data, starts_with("Int"), denominazione_regione),
+              by = c("denominazione_regione", "data"))
+  return(dataICUbar)
+}
+
+barplot_ICU <- function(tab1,datasel){
+  
+  out <- tab1 %>% filter(data == datasel) %>%
+    plot_ly(x = ~denominazione_regione, y = ~`Intensive care`, type = "bar", name = "Observed", marker = list(color = "firebrick")) %>%
+    add_trace(y = ~Prediction, name = "Predicted", marker = list(color = "darkorange")) %>%
+    layout(title = paste0("Intensive care units on the ", paste_eng_date(datasel)), legend = list(x = 0, y = 1), xaxis = list(title = ""), yaxis = list(title = "ICUs"))
+  return(out)
+  
+}
+
