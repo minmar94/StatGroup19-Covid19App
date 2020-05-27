@@ -659,7 +659,7 @@ table_raw_data <- function(tab, datesel, resdata){
                      `Capacity ICU` = c(115,49,107,(506+80),(539+90),127,(557+118),186,(1200+208),(154+39),31,560,289,123,392,(394+70),(115+42),70,45,(600+338)))
   
   raw_app <- tab %>% mutate(Region = as.character(Region)) %>% 
-    group_by(`Region`) %>%
+    group_by(`Region`) %>% arrange(Date) %>% 
     mutate(Incrpos = c(`New positives`[1], diff(`New positives`)),
            Incrdeaths = c(`New deaths`[1], diff(`New deaths`))) %>% 
     ungroup() %>% 
@@ -671,6 +671,7 @@ table_raw_data <- function(tab, datesel, resdata){
     mutate(`Cum. Pos. (x 1000 residents)` = round((`Cumulative positives`/Residents)*1000,2),
            `Deceas. (x 1000 residents)` = round((`Deceased`/Residents)*1000,2),
            `Curr. Pos. (x 1000 residents)` = round((`Current positives`/Residents)*1000,2),
+           `Fatality rate (%)` = round((Deceased/`Cumulative positives`)*100, 2),
            `ICU/capacity (%)` = round((`Intensive care`/`Capacity ICU`)*100,2))
   
   dt_out <- raw_app %>% 
@@ -1209,3 +1210,22 @@ barplot_ICU <- function(tab1,datasel){
   
 }
 
+# SAVE ICU DROPBOX
+saveData <- function(data, token) {
+  
+  # Create a unique file name
+  fileName <- "PastICUPred.csv"
+  # Write the data to a temporary file locally
+  filePath <- file.path(tempdir(), fileName)
+  write.csv(data, filePath, row.names = FALSE, quote = TRUE)
+  # Upload the file to Dropbox
+  drop_upload(file = filePath, path = "DataICUCovid19", dtoken = token)
+}
+
+loadData <- function(token) {
+  # Read all the files into a list
+  # Concatenate all data together into one data.frame
+  data <- drop_read_csv(file = "DataICUCovid19/PastICUpred.csv", dtoken = token) %>% as_tibble() %>% mutate(DataPred = as.Date(DataPred))
+  colnames(data) <- c("Region", "Prediction", "Lower bound", "Upper bound", "Capacity", "DataPred")
+  return(data)
+}
