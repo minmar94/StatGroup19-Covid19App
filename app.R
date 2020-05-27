@@ -20,6 +20,7 @@ require(shinydashboard)
 require(plotly)
 require(rgeos)
 require(lme4)
+require(rdrop2)
 
 rm(list=ls())
 
@@ -29,7 +30,6 @@ Sys.setlocale(locale = "C")
 # Load functions and data
 source("Script/FunctionsFinal2.R")
 source("Script/UsefulFunsApp2.R")
-load("Data/PastICUPred.RData")
 
 # Read residents data
 residents <- read_residents(path = "Data/residenti2019.csv")
@@ -45,18 +45,24 @@ TotPop <- 60359546
 # Count user logged
 users = reactiveValues(count = 0)
 
-
 # Get decrees
 decrees <- get_decrees()
 decreeplot <- plot_decree(decrees)
 
 # ICU
-tICU <- reactiveValues(tb = outmod_terapie_tab)
+token <- readRDS("droptoken.rds")
+# Then pass the token to each drop_ function
+drop_acc(dtoken = token)
+tICU <- reactiveValues(tb = loadData(token = token))
 
 reg_choices <- list("Northern Italy" = list("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta", "Emilia-Romagna", "Friuli Venezia Giulia", "Veneto", "Trentino-Alto Adige"),
                     "Central Italy" = list("Lazio", "Marche", "Toscana", "Umbria"),
                     "Southern Italy" = list("Abruzzo", "Basilicata", "Calabria", "Campania", "Molise", "Puglia"),
                     "Insular" = list("Sardegna", "Sicilia"))
+
+# token <- drop_auth()
+# saveRDS(token, "droptoken.rds")
+
 
 # ShinyApp ----------------------------------------------------------------
 ui <- navbarPage(theme = shinytheme("sandstone"), 
@@ -301,6 +307,9 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
 
 
 server <- function(input, output, session){
+  # token <- readRDS("droptoken.rds")
+  # # Then pass the token to each drop_ function
+  # drop_acc(dtoken = token)
   
   # Welcome message
   sendSweetAlert(
@@ -369,7 +378,7 @@ server <- function(input, output, session){
   
   
   # Data preparation for the model
-  data_formodel_prep <- reactive({prepdata_for_model(dftoprep = dati_reg() %>% spread(Key, Value), resdata = residents)})
+  data_formodel_prep <- reactive({prepdata_for_model(dftoprep = isolate(dati_reg()) %>% spread(Key, Value), resdata = residents)})
   
   # Today summary
   tod_summary <- reactive({return_current_situa(da = dati_Ita(), TotPop = TotPop)})
@@ -675,13 +684,15 @@ server <- function(input, output, session){
   # Icu data preparation
   
   # Modello terapia intensiva
+  tICU$tb <- loadData(token = token)
+  
   icu_data <- reactive({
-    if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){dataprep_terapie(dftoprep = dati_reg() %>% spread(Key, Value), resdata = residents)}else{return(NULL)} 
+    if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){dataprep_terapie(dftoprep = dati_reg() %>% spread(Key, Value), resdata = residents)}
   })
   
   if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){
     showModal(modalDialog(
-      HTML("<p align='center'>We are updating ICU predictions..please be patient and wait!</p>"),
+      HTML("<p align='center'>We are updating the app..please be patient and wait!</p>"),
       size = "m",
       title = HTML("<b>WARNING</b>"), easyClose = F))
   }
@@ -693,6 +704,7 @@ server <- function(input, output, session){
   isolate(
     if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){ 
       tICU$tb %<>% bind_rows(isolate(outmod_terapie_tomor()) %>% mutate(DataPred = max(isolate(tICU$tb)$DataPred)+1))
+      saveData(tICU$tb, token = token)
     }
   )
   
