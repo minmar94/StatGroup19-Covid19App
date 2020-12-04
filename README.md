@@ -1,4 +1,4 @@
-# CoviData19 - an app for all [![eRum2020::CovidR](https://badgen.net/https/runkit.io/erum2020-covidr/badge/branches/master/mingione-nowcasting?cache=300)](https://milano-r.github.io/erum2020-covidr-contest/mingione-nowcasting.html)
+# Covid19App - an app for all [![eRum2020::CovidR](https://badgen.net/https/runkit.io/erum2020-covidr/badge/branches/master/mingione-nowcasting?cache=300)](https://milano-r.github.io/erum2020-covidr-contest/mingione-nowcasting.html)
 Our work is intended to give people an easy tool for accessing information about the Italian COVID-19 epidemic in an interactive and transparent way. The web application we built is automatically updated every day after the Italian Protezione Civile report (Data Source) and shows both descriptive and modeling analysis, giving the user the possibility to customize several choices.
 
 - Italian version of the app is available [here](https://statgroup19.shinyapps.io/Covid19App/)
