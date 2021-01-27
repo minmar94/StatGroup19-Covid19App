@@ -7,9 +7,6 @@ require(shinyWidgets)
 require(lubridate)
 require(DT)
 require(stringi)
-require(MASS)
-require(rmutil)
-require(nplr)
 require(tscount)
 require(foreach)
 require(doSNOW)
@@ -18,21 +15,25 @@ require(sp)
 require(rmarkdown)
 require(shinydashboard)
 require(plotly)
+require(leaflet)
 require(rgeos)
 require(lme4)
 require(rdrop2)
-
 rm(list=ls())
 
 
 Sys.setlocale(locale = "C")
 
 # Load functions and data
-source("Script/FunctionsFinal2.R")
+source("Script/Fun_DRichFit_CovsOnLambda.R")
 source("Script/UsefulFunsApp2.R")
 
 # Read residents data
 residents <- read_residents(path = "Data/residenti2019.csv")
+# dati_Ita <- read_italian(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv")
+# dati_reg <- read_regional(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv")
+# data_formodel_prep <- prepdata_for_model(dati_reg %>% spread(Key, Value), residents)
+
 
 # Read data for regional map
 italy_sf_reg <- read_shape_italy(province = F)
@@ -55,14 +56,12 @@ token <- readRDS("droptoken.rds")
 drop_acc(dtoken = token)
 tICU <- reactiveValues(tb = loadData(token = token))
 
+capacitaICU <- read_csv("Data/CapacitaICU.csv")
+
 reg_choices <- list("Northern Italy" = list("Lombardia", "Liguria", "Piemonte", "Valle d'Aosta", "Emilia-Romagna", "Friuli Venezia Giulia", "Veneto", "Trentino-Alto Adige"),
                     "Central Italy" = list("Lazio", "Marche", "Toscana", "Umbria"),
                     "Southern Italy" = list("Abruzzo", "Basilicata", "Calabria", "Campania", "Molise", "Puglia"),
                     "Insular" = list("Sardegna", "Sicilia"))
-
-# token <- drop_auth()
-# saveRDS(token, "droptoken.rds")
-
 
 # ShinyApp ----------------------------------------------------------------
 ui <- navbarPage(theme = shinytheme("sandstone"), 
@@ -72,14 +71,17 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                           
                           div(style="margin-top:-3.5em",
                               
-                              fluidRow(tags$hr(),
+                              fluidRow(HTML('<meta name="viewport" content="width=1024">'),tags$hr(),
                                        useShinydashboard(),
                                        column(width = 12,
                                               htmlOutput(outputId = "CurrentSitua"),
-                                              valueBoxOutput("CumPos"), valueBoxOutput("CurrPos"), valueBoxOutput("CurrHosp"),
-                                              valueBoxOutput("ICU"), valueBoxOutput("HospSym"), valueBoxOutput("HomeIs"),
-                                              valueBoxOutput("NewPos"), valueBoxOutput("DishRec"), valueBoxOutput("Deces"),
-                                              valueBoxOutput("Swabs"), valueBoxOutput("TestedCases"), valueBoxOutput("LetRate"),
+                                              valueBoxOutput("CumPos"), valueBoxOutput("Deces"), valueBoxOutput("ICU"), 
+                                              valueBoxOutput("DishRec"), valueBoxOutput("Swabs"), valueBoxOutput("TestedCases"), 
+                                              valueBoxOutput("CurrPos"),valueBoxOutput("HospSym"), valueBoxOutput("HomeIs"),
+                                              #valueBoxOutput("CurrHosp"),
+                                              #valueBoxOutput("NewPos"), 
+                                              valueBoxOutput("PosRate"), valueBoxOutput("LetRate"), valueBoxOutput("MortRate"),
+                                              #valueBoxOutput("ICUStress"), 
                                               
                                               actionBttn(inputId = "ImpDef", icon = icon("question"), 
                                                          style = "material-circle", color = "warning", size = "sm"),
@@ -87,7 +89,7 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                                               downloadLink(outputId = "USGuideDown", label = "Download the complete user guide"),
                                               style="text-align:justify;padding:20px;")
                               ),
-                              fluidRow(
+                              fluidRow(HTML('<meta name="viewport" content="width=1024">'),
                                 column(11, uiOutput(outputId = "COV19"), style="text-align:justify;padding:20px;")
                                 
                               )
@@ -95,99 +97,116 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                           
                           tags$style(HTML("hr {border-top: 1px solid #000000;}")),
                           tags$hr(),
-                          fluidPage(
+                          fluidPage(HTML('<meta name="viewport" content="width=1024">'),
                             fluidRow(
                               column(width = 12,
                                      plotlyOutput(outputId = "decrees_timeline")
                               )
                             ),
                             tags$hr(),
-                            fluidRow(
-                              sidebarLayout(
-                                sidebarPanel(width = 3,
-                                             prettyRadioButtons(
-                                               inputId = "VarRow1", label = "Pick a variable", 
-                                               choices = list("Cumulative positives", "Current positives"),
-                                               selected = "Cumulative positives", status = "danger", shape = "round",
-                                               inline = F, icon = icon("check")),
-                                             prettySwitch(
-                                               inputId = "DonBarPerReg", label = "View by region",
-                                               value = F, status = "danger", slim = T, bigger = F
-                                             ),
-                                             uiOutput(outputId = "DisplayRegRow1")
-                                ),
-                                mainPanel(
-                                  splitLayout(
-                                    cellWidths = c("53%","55%"),
-                                    addSpinner(plotlyOutput(outputId = "DonughtPlot"), spin = "fading-circle", color = "firebrick"),
-                                    addSpinner(plotlyOutput(outputId = "BarStackPos"), spin = "fading-circle", color = "firebrick")
-                                  )
-                                  
-                                )
-                                
-                              )
-                            ),
-                            tags$hr(),
                             
                             fluidRow(
-                              sidebarLayout(
-                                sidebarPanel(width = 3,
-                                             pickerInput(inputId = "SelIdxforTSandMap", 
-                                                         label = "Pick a variable", 
-                                                         choices = list("Cumulative positives", "Current positives", "New positives",
-                                                                        "Current hospitalized", "Hospitalized with symptoms","Intensive care",
-                                                                        "Home isolation","Discharged recovered", "Deceased", "Swabs",
-                                                                        "Tested cases"),
-                                                         width = "fit",
-                                                         selected = "Cumulative positives"),
-                                             helpText("Note that for tested cases data are only available from the 19th April 2020."),
-                                             prettySwitch(inputId = "TSRegioneSiNo", status = "danger", bigger = F, slim = T,
-                                                          label = "View time series by region",
-                                                          value = F),
-                                             uiOutput(outputId = "SelRegTSandMap"),
-                                             prettyRadioButtons(inputId = "IncrementiSiNo", 
-                                                                label = "Type of time series:",
-                                                                choices = list("raw","daily variations", "weekly variations"),
-                                                                status = "danger",icon = icon("check"), 
-                                                                selected = "raw"),
-                                             uiOutput(outputId = "IncrPercSiNo"),
-                                             prettyCheckbox(inputId = "WantDensity", label = "Rescale map w.r.t. the population size", 
-                                                            status = "danger",icon = icon("check"), value = F),
-                                             uiOutput(outputId = "SelDateTSandMap")
-                                             ),
-                                mainPanel(
-                                  splitLayout(
-                                    cellWidths = c("53%", "55%"),
-                                    addSpinner(plotlyOutput(outputId = "TSIncrPerc", height = "450px"), spin = "fading-circle", color = "firebrick"),
-                                    addSpinner(plotlyOutput(outputId = "MapIta", height = "450px"), spin = "fading-circle", color = "firebrick")
-                                    
-                                  )
+                              fluidPage(
+                                tabsetPanel(
+                                  tabPanel(title = "Ratios Time Series", 
+                                           fluidRow(
+                                             sidebarLayout(
+                                               sidebarPanel(width = 3,
+                                                            pickerInput(inputId = "RatioIn", label = "Select a rate",
+                                                                        choices = list("Positivity", "Fatality",
+                                                                                       "Healing", "Severity", "Seriousness", "ICU Stress"),
+                                                                        selected = "New positives/Swabs"),
+                                                            prettySwitch(inputId = "Ratio_by_region", value = F, status = "danger", label = "View by region",
+                                                                         bigger = F, slim = T),
+                                                            uiOutput(outputId = "RegionRatio"),
+                                                            prettyCheckbox(inputId = "VarWeekratio", 
+                                                                           label = "weekly average", value = F,
+                                                                           status = "warning",icon = icon("check")),
+                                                            helpText("The time series of each rate is obtained as the ratio between the indicators showed in the bar plot. In particular, orange color is for the indicator at the enumerator, red one is for the denominator."),
+                                                            helpText("If the ratio is lower than 0 or higher than 100, it is a data entry error."),
+                                                            helpText("NB: Tested cases are only available from April 19, 2020."),
+                                                            helpText("NB: From January 15, 2021, swabs include also antigenic swabs.")
+                                               ),
+                                               mainPanel(
+                                                 splitLayout(
+                                                   cellWidths = c("53%", "55%"),
+                                                   plotlyOutput(outputId = "TS_ratio"),
+                                                   plotlyOutput(outputId = "Bar_ratio")
+                                                 )
+                                               )
+                                             )
+                                           )
+                                  ),
+                                  tabPanel(title = "Distribution of Positives", 
+                                           fluidRow(
+                                             sidebarLayout(
+                                               sidebarPanel(width = 3,
+                                                            prettyRadioButtons(
+                                                              inputId = "VarRow1", label = "Pick a variable", 
+                                                              choices = list("Cumulative positives", "Current positives"),
+                                                              selected = "Cumulative positives", status = "danger", shape = "round",
+                                                              inline = F, icon = icon("check")),
+                                                            prettySwitch(
+                                                              inputId = "DonBarPerReg", label = "View by region",
+                                                              value = F, status = "danger", slim = T, bigger = F
+                                                            ),
+                                                            uiOutput(outputId = "DisplayRegRow1")
+                                               ),
+                                               mainPanel(
+                                                 splitLayout(
+                                                   cellWidths = c("53%","55%"),
+                                                   addSpinner(plotlyOutput(outputId = "DonughtPlot"), spin = "fading-circle", color = "firebrick"),
+                                                   addSpinner(plotlyOutput(outputId = "BarStackPos"), spin = "fading-circle", color = "firebrick")
+                                                 )
+                                                 
+                                               )
+                                               
+                                             )
+                                           )
+                                  ),
+                                  tabPanel(title = "Time series and Map",
+                                           fluidRow(
+                                             sidebarLayout(
+                                               sidebarPanel(width = 3,
+                                                            pickerInput(inputId = "SelIdxforTSandMap", 
+                                                                        label = "Pick a variable", 
+                                                                        choices = list("Cumulative positives", "Current positives", "New positives",
+                                                                                       "Current hospitalized", "Hospitalized with symptoms","Intensive care",
+                                                                                       "Home isolation","Discharged recovered", "Deceased", "Swabs",
+                                                                                       "Tested cases"),
+                                                                        width = "fit",
+                                                                        selected = "Cumulative positives"),
+                                                            helpText("Note that for tested cases data are only available from the 19th April 2020."),
+                                                            prettySwitch(inputId = "TSRegioneSiNo", status = "danger", bigger = F, slim = T,
+                                                                         label = "View time series by region",
+                                                                         value = F),
+                                                            uiOutput(outputId = "SelRegTSandMap"),
+                                                            prettyRadioButtons(inputId = "IncrementiSiNo", 
+                                                                               label = "Type of time series:",
+                                                                               choices = list("raw","daily variations", "weekly variations"),
+                                                                               status = "danger",icon = icon("check"), 
+                                                                               selected = "raw"),
+                                                            uiOutput(outputId = "IncrPercSiNo"),
+                                                            prettyCheckbox(inputId = "WantDensity", label = "Rescale map w.r.t. the population size", 
+                                                                           status = "danger",icon = icon("check"), value = F),
+                                                            uiOutput(outputId = "SelDateTSandMap")
+                                               ),
+                                               mainPanel(
+                                                 splitLayout(
+                                                   cellWidths = c("53%", "55%"),
+                                                   addSpinner(plotlyOutput(outputId = "TSIncrPerc", height = "450px"), spin = "fading-circle", color = "firebrick"),
+                                                   addSpinner(leafletOutput(outputId = "MapIta", height = "450px"), spin = "fading-circle", color = "firebrick")
+                                                   
+                                                 )
+                                               )
+                                             )
+                                           )
+                                           )
                                 )
                               )
-                              ),
-                            
-                            tags$hr(),
-                            fluidRow(
-                              sidebarLayout(
-                                sidebarPanel(width = 3,
-                                             pickerInput(inputId = "RatioIn", label = "Select a rate",
-                                                         choices = list("Positivity", "Fatality",
-                                                                        "Healing", "Severity"),
-                                                         selected = "New positives/Swabs"),
-                                             prettySwitch(inputId = "Ratio_by_region", value = F, status = "danger", label = "View by region",
-                                                          bigger = F, slim = T),
-                                             uiOutput(outputId = "RegionRatio"),
-                                             helpText("The time series of each rate is obtained as the ratio between the indicators showed in the bar plot. In particular, orange color is for the indicator at the enumerator, red one is for the denominator.")
-                                ),
-                                mainPanel(
-                                  splitLayout(
-                                    cellWidths = c("53%", "55%"),
-                                    plotlyOutput(outputId = "TS_ratio"),
-                                    plotlyOutput(outputId = "Bar_ratio")
-                                  )
-                                )
-                                )
                             ),
+                            
+                            
                             tags$hr(),
                             fluidRow(
                               tags$h3(tags$strong("Table with the raw data"), align = "center"),
@@ -203,7 +222,7 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                  )),
                  # Second tab: Model
                  tabPanel("Short-term forecast", icon = icon("chart-line"),
-                          fluidPage(
+                          fluidPage(HTML('<meta name="viewport" content="width=1024">'),
                             tags$head(
                               tags$style(
                                 HTML(".shiny-notification {
@@ -217,25 +236,40 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                                 )
                               )
                             ),
-                            tags$h2(tags$strong("Generalized linear (Mirrored) Richards model*")),
-                            # tags$h5("*further details on the methodology can be found ",
-                            #         tags$a(href = "https://statgroup-19.blogspot.com/p/covid-19-epidemic-progress-medium-term.html" , "here")),
-                            tags$h5("*for further details on the methodology we recommend to look at the user guide."),
+                            tags$h2(tags$strong("Generalized linear Richards model*")),
+                            tags$h5("*further details on the methodology can be found ",
+                                    tags$a(href = "https://arxiv.org/pdf/2010.12679.pdf" , "here")),
+                            #tags$h5("*for further details on the methodology we recommend to look at the user guide."),
                             sidebarLayout(
                               sidebarPanel(
-                                tags$h3(tags$strong("Model parameters")),
+                                tags$h3(tags$strong("Parameters of the model")),
+                                prettyRadioButtons(
+                                  inputId = "WhichWave", label = "Which part of the epidemic do you want to model?",
+                                  choices = list("I part", "II part"),
+                                  selected = "I part", status = "danger", shape = "round",
+                                  inline = T),
+                                helpText("If you are modeling the I part, then you will use all the data up to the selected date."),
+                                helpText("If you are modeling the II part, then you will use all the data from the selected date."),
+                                sliderInput(inputId = "DateWave", label = "End/Start date of the two parts of the epidemic",
+                                            min = as.Date("2020-07-01"), max = as.Date("2020-07-31"),
+                                            value = as.Date("2020-07-19"), width = "300px"),
                                 pickerInput(inputId = "VarForModel", 
-                                            label = "Select the variable you want to model",
-                                            choices = list("New positives", "Cumulative positives", "Deceased",
-                                                           "Current hospitalized", "Hospitalized with symptoms",
-                                                           "Home isolation","Discharged recovered"),
+                                            label = "Select the incidence indicator you want to model",
+                                            choices = list("New positives", "New deceased",
+                                                           #"Cumulative positives", "Deceased",
+                                                           #"Intensive care",
+                                                           #"Current hospitalized", "Hospitalized with symptoms","Home isolation",
+                                                           "New discharged recovered"),
                                             selected = "New positives", width = "300px"), 
+                                uiOutput(outputId = "HelpCovs"),
+                                #uiOutput(outputId = "AddCovariates"),
                                 uiOutput(outputId = "ExcludeDaysModel"),
                                 radioButtons(inputId = "ModelFamily",
                                              label = "Choose a distribution",
                                              choices = list( "Negative Binomial", "Poisson"),
                                              selected = "Negative Binomial"),
-                                helpText("If you are not satisfied by the Poisson coverage, try the Negative Binomial (we recommend it)!"),
+                                #helpText("If you are not satisfied by the Poisson coverage, try the Negative Binomial (we recommend it)!"),
+                                helpText("If you are not satisfied by the output, change the parameters (e.g. use all data, change distribution, etc)"),
                                 materialSwitch(inputId = "ModRegioneSiNo", 
                                                label = HTML("<b>Model by region</b>"), 
                                                value = F, status = "danger"),
@@ -277,11 +311,13 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                  ),
                  # Third tab: ICU predictions
                  tabPanel(title ="ICU nowcasting", icon = icon("hospital"), 
-                          fluidPage(
+                          fluidPage(HTML('<meta name="viewport" content="width=1024">'),
                             htmlOutput(outputId = "ICUTabHead"),# 3
-                            # tags$h5("*further details on the methodology can be found ",
-                            #         tags$a(href = "https://statgroup-19.blogspot.com/p/short-term-predictions-of-daily.html" , "here")),
-                            tags$h5("*for further details on the methodology we recommend to look at the user guide."),
+                            tags$h5("*further details on the methodology can be found ", 
+                                    tags$a(href = "https://onlinelibrary.wiley.com/doi/10.1002/bimj.202000189" , "here")),
+                            tags$h5("**ICU capacity source is ", 
+                                    tags$a(href = "https://www.agenas.gov.it/covid19/web/index.php?r=site%2Ftab2" , "here")),
+                            helpText("Click the button to download the predictions"),
                             fluidRow(addSpinner(DTOutput("ICuTab"), spin = "fading-circle", color = "firebrick"), 
                                      helpText("Click the button to download the predictions"),
                                      downloadButton(outputId = "DownICUTomorrow", label = "Download")),
@@ -290,8 +326,8 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                               sidebarLayout(
                                 sidebarPanel(
                                   
-                                  helpText(tags$h4(tags$strong("Comparison of predicted vs observed values on the chosen date*")),
-                                           tags$h5("*starting from 17th of March 2020")),
+                                  helpText(tags$h4(tags$strong("Comparison of predicted vs observed values on the chosen date")),
+                                           tags$h5("Starting from 17th of March 2020")),
                                   uiOutput(outputId = "ICubarDate"),
                                   uiOutput("CovICUModel"),
                                   helpText("Click the button to download the predictions on the date you chose"),
@@ -300,16 +336,40 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                                 ), 
                                 mainPanel(addSpinner(plotlyOutput("BarplotIcu"), spin = "fading-circle", color = "firebrick"))))
                           )),
-                 # Fourth tab: Info and credits
+                 # TAB 4 - VACCINI
+                 tabPanel(
+                   "Vaccinazioni", icon = icon("syringe"),
+                   sidebarLayout(
+                     sidebarPanel(width = 3,
+                                  prettyRadioButtons("VacMapType", label = "Vaccine doses map (select one of the followings)", 
+                                                     choices = list("Administered", "Administered/Delivered", "Administered/Residents"),
+                                                     selected = "Administered/Delivered", inline = F),
+                                  materialSwitch(inputId = "VacIsReg", 
+                                                 label = HTML("<b>Donut plot by region</b>"), 
+                                                 value = F, status = "danger"), 
+                                  uiOutput("VacReg"),
+                                  tags$hr(),
+                                  tableOutput("VacItaDT")
+                     ),
+                     mainPanel(width = 9,
+                               fluidRow(column(dataTableOutput("VaccineRawData"), width = 7),
+                                        column(tags$br(),tags$br(),
+                                               addSpinner(leafletOutput("VaccineMap"), spin = "fading-circle", color = "firebrick"), width = 5)),
+                               tags$hr(),
+                               fluidRow(
+                                 column(addSpinner(plotlyOutput("VacDonutSesso"), spin = "fading-circle", color = "firebrick"), width = 4),
+                                 column(addSpinner(plotlyOutput("VacDonutCategoria"), spin = "fading-circle", color = "firebrick"), width = 4),
+                                 column(addSpinner(plotlyOutput("VacDonutEta"), spin = "fading-circle", color = "firebrick"), width = 4))
+                     )
+                   )
+                 ),
+                 # Fifth tab: Info and credits
                  tabPanel("Info and Credits", icon = icon("info-circle"), div(style="margin-top:-2.5em", includeMarkdown("InfoandCredits.md")))
                  
 )
 
 
 server <- function(input, output, session){
-  # token <- readRDS("droptoken.rds")
-  # # Then pass the token to each drop_ function
-  # drop_acc(dtoken = token)
   
   # Welcome message
   sendSweetAlert(
@@ -330,12 +390,8 @@ server <- function(input, output, session){
     users$count <- users$count + 1
   })
   
-  
   onSessionEnded(function() {
-    isolate({
-      users$count <- users$count - 1
-    })
-    
+    isolate({users$count <- users$count - 1})
   })
   
   output$NUsers <- renderUI({
@@ -358,11 +414,38 @@ server <- function(input, output, session){
     read_province(path = "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-province/dpc-covid19-ita-province.csv")
   })
   
+  # Vaccini
+  v_data_summ <- reactive({
+    read_vaccines_latest_summ("https://raw.githubusercontent.com/italia/covid19-opendata-vaccini/master/dati/vaccini-summary-latest.csv")
+  })
+  v_data_ana <- reactive({
+    read_vaccines_latest_ana("https://raw.githubusercontent.com/italia/covid19-opendata-vaccini/master/dati/anagrafica-vaccini-summary-latest.csv")
+  })
+  v_data_somm <- reactive({
+    read_vaccines_2("https://raw.githubusercontent.com/italia/covid19-opendata-vaccini/master/dati/somministrazioni-vaccini-latest.csv")
+  })
+  v_data_reg <- reactive({
+    read_vaccines_1("https://raw.githubusercontent.com/italia/covid19-opendata-vaccini/master/dati/somministrazioni-vaccini-latest.csv")
+  })
+  
+  # Update ICU
+  # CapICUUpdated <- reactive({
+  #   if(isolate(tdy()) == max(isolate(dati_Ita())$data)){
+  #     read_updated_ICUCapacity(path = "https://www.agenas.gov.it/covid19/web/index.php?r=site%2Ftab2", capICU = capacitaICU)
+  #   }
+  # })
+  # 
+  # CapICUNew <- reactive({
+  #   capacitaICU$Capienza[capacitaICU$data>=max(isolate(dati_Ita())$data)] <- CapICUUpdated()$`PL in Terapia Intensiva`
+  #   return(capacitaICU)
+  # })
+  # 
+  
   # Join data regional
   joined_reg <- reactive({
     italy_sf_reg %>% 
-      sp::merge(dati_reg(), by.y = "denominazione_regione", by.x = "NAME") %>% 
-      add_residents_tomap(resdata = residents)
+      sp::merge(dati_reg() %>% spread(Key, Value), by.y = "denominazione_regione", by.x = "NAME") %>% 
+      add_residents_tomap(resdata = residents, tomerge = "NAME") %>% gather(Key, Value, `Tested cases`:`Current positives`)
   })
   
   # Join data province
@@ -371,7 +454,7 @@ server <- function(input, output, session){
       sp::merge(dati_prov() %>% dplyr::select(data, denominazione_provincia, denominazione_regione, `Cumulative positives`),
                 by.y = c("denominazione_regione", "denominazione_provincia"),
                 by.x = c("NAME", "NAME_2"), all.x = T) %>% 
-      add_residents_tomap(resdata = residents) %>% 
+      add_residents_tomap(resdata = residents, tomerge = "NAME_2") %>% 
       gather(Key, Value, `Cumulative positives`) %>% 
       dplyr::select(NAME_2, NAME, Key, data, Value, geometry, residenti)
   })
@@ -381,7 +464,7 @@ server <- function(input, output, session){
   data_formodel_prep <- reactive({prepdata_for_model(dftoprep = isolate(dati_reg()) %>% spread(Key, Value), resdata = residents)})
   
   # Today summary
-  tod_summary <- reactive({return_current_situa(da = dati_Ita(), TotPop = TotPop)})
+  tod_summary <- reactive({return_current_situa(da = dati_Ita(), TotPop = TotPop, CapICUTot = sum(capacitaICU$Capienza[capacitaICU$data == isolate(tdy())]))})
   
   
   # Table with today raw data
@@ -390,7 +473,7 @@ server <- function(input, output, session){
   # Date reactive inputs
   output$SelDateTSandMap <- renderUI({
     sliderTextInput(
-      inputId = "SelDateTSandMap", label = "Choose a day", grid = F, force_edges = TRUE, width = 250, selected = tdy(), choices = seq(min(dati_Ita()$data), tdy(),1)
+      inputId = "SelDateTSandMap", label = "Choose a day", grid = F, force_edges = TRUE, width = 250, selected = tdy(), choices = seq(as.Date("2020-03-01"), tdy(),1)
     )
   })
   
@@ -400,7 +483,7 @@ server <- function(input, output, session){
   })
   
   ### Raw data
-  output$Rawdata <- renderDT({table_raw_data(tab = raw_today(), datesel = input$RawDatadate, resdata = residents)})
+  output$Rawdata <- renderDT({table_raw_data(tab = raw_today(), datesel = input$RawDatadate, resdata = residents, capICU = capacitaICU)})
   
   # Downooad the raw data
   output$DownloadRawData <- downloadHandler(
@@ -412,11 +495,6 @@ server <- function(input, output, session){
     }
   )
   
-  # Data for model
-  output$ExcludeDaysModel <- renderUI({
-    sliderInput(inputId = "ExcludeDaysModel", label = "Fitting interval (exclude up to the last 15 days):", 
-                min = tdy()-14, max = tdy(), value = tdy(), width = "300px")
-  })
   
   # What is COVID19
   output$COV19 <- renderUI({whatiscovid()})
@@ -431,116 +509,179 @@ server <- function(input, output, session){
   
   # Value boxes
   output$CumPos <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Cumulative positives`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Cumulative positives</b> (", tod_summary()$`Cumulative positives`[2], ")")),
+      value = HTML(paste0("New positives <br>", 
+                          prettyNum(tod_summary()$`New positives`[1], big.mark = ".", decimal.mark = ","),
+                          " (", tod_summary()$`New positives`[2], ")")),
+      subtitle = HTML(
+        paste0("<b>Molecular</b> ", prettyNum(tod_summary()$`New positives`[3], big.mark = ".", decimal.mark = ","),
+               " <b>Antigenic</b> ", prettyNum(tod_summary()$`New positives`[4], big.mark = ".", decimal.mark = ","),
+               " <b>Total</b> ", prettyNum(tod_summary()$`Cumulative positives`[1], big.mark = ".", decimal.mark = ",")
+        )
+      ),
       icon = icon("plus-square"),
       color = "red"
     )
     
   })
   
-  output$CurrPos <- renderValueBox({
+  output$Deces <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Current positives`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Current positives</b> (", tod_summary()$`Current positives`[2], ")")),
-      icon = icon("user-plus"),
+      value = HTML(paste0("Deaths <br>", prettyNum(tod_summary()$Deceased[3], big.mark = ".", decimal.mark = ","),
+                          " (", tod_summary()$Deceased[2], ")")),
+      subtitle = HTML(paste0("<b>Total</b> ", prettyNum(tod_summary()$Deceased[1], big.mark = ".", decimal.mark = ","))),
+      icon = icon("ribbon"),
       color = "orange"
     )
   })
   
-  output$CurrHosp <- renderValueBox({
-    valueBox(
-      value = prettyNum(tod_summary()$`Current hospitalized`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Currently hospitalized</b> (", tod_summary()$`Current hospitalized`[2], ")")),
-      icon = icon("hospital"), 
-      color = "yellow"
-    )
-  })
-  
   output$ICU <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Intensive care`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Intensive care</b> (", tod_summary()$`Intensive care`[2], ")")),
+      value = HTML(paste0("Intensive care <br>", prettyNum(tod_summary()$`Intensive care`[3], big.mark = ".", decimal.mark = ","), 
+                          " (", tod_summary()$`Intensive care`[2], ")")),
+      subtitle = HTML(paste0("<b>Occupied beds</b> ", prettyNum(tod_summary()$`Intensive care`[1], big.mark = ".", decimal.mark = ","), 
+                             "  <b>ICU stress</b> ", prettyNum(tod_summary()$ICUStress[1], big.mark = ".", decimal.mark = ","), "%")),
       icon = icon("procedures"),
       color = "yellow"
     )
   })
   
-  output$HospSym <- renderValueBox({
+  output$CurrPos <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Hospitalized with symptoms`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Hospitalized with symptoms</b> (", tod_summary()$`Hospitalized with symptoms`[2], ")")),
+      value = HTML(paste0("Current positives <br>", prettyNum(tod_summary()$`Current positives`[1], big.mark = ".", decimal.mark = ","), 
+                          " (", tod_summary()$`Current positives`[2], ")")),
+      subtitle = HTML(paste0("<b>Balance</b> ", prettyNum(tod_summary()$`Current positives`[3], big.mark = ".", decimal.mark = ","))),
+      icon = icon("user-plus"),
+      color = "yellow"
+    )
+  })
+  
+  # output$CurrHosp <- renderValueBox({
+  #   
+  #   valueBox(
+  #     value = prettyNum(tod_summary()$`Attualmente ricoverati`[1], big.mark = ".", decimal.mark = ","),
+  #     subtitle = HTML(paste0("<b>Attualmente ricoverati</b> (", tod_summary()$`Attualmente ricoverati`[2], ")")),
+  #     icon = icon("hospital"),
+  #     color = "yellow"
+  #   )
+  #   
+  # })
+  
+  output$HospSym <- renderValueBox({
+    
+    valueBox(
+      value = HTML(paste0("Current hospitalized <br>",  prettyNum(tod_summary()$`Current hospitalized`[3], big.mark = ".", decimal.mark = ","),
+                          " (", tod_summary()$`Current hospitalized`[2], ")")),
+      subtitle = HTML(paste0("<b>Totali</b> ", prettyNum(tod_summary()$`Current hospitalized`[1], big.mark = ".", decimal.mark = ","), 
+                             "  <b>Hospitalized with symptoms</b> ", prettyNum(tod_summary()$`Hospitalized with symptoms`[1], big.mark = ".", decimal.mark = ","))),
       icon = icon("ambulance"),
       color = "red"
     )
   })
   
   output$HomeIs <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Home isolation`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Home isolation</b> (", tod_summary()$`Home isolation`[2], ")")),
+      value = HTML(paste0("Home isolation <br>", prettyNum(tod_summary()$`Home isolation`[3], big.mark = ".", decimal.mark = ","), 
+                          " (", tod_summary()$`Home isolation`[2], ")")),
+      subtitle = HTML(paste0("<b>Total</b> ", prettyNum(tod_summary()$`Home isolation`[1], big.mark = ".", decimal.mark = ","))),
       icon = icon("home"),
       color = "orange"
     )
   })
   
-  output$NewPos <- renderValueBox({
-    valueBox(
-      value = prettyNum(tod_summary()$`New positives`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>New positives</b> (", tod_summary()$`New positives`[2], ")")),
-      icon = icon("plus-square"),
-      color = "orange"
-    )
-  })
+  # output$NewPos <- renderValueBox({
+  #   
+  #   valueBox(
+  #     value = prettyNum(tod_summary()$`Nuovi positivi`[1], big.mark = " "),
+  #     subtitle = HTML(paste0("<b>Nuovi positivi</b> (", tod_summary()$`Nuovi positivi`[2], ")")),
+  #     icon = icon("plus-square"),
+  #     color = "orange"
+  #   )
+  # })
   
   output$DishRec <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Discharged recovered`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Discharged recovered</b> (", tod_summary()$`Discharged recovered`[2], ")")),
+      value = HTML(paste0("Discharged/Recovered <br>", prettyNum(tod_summary()$`Discharged recovered`[3], big.mark = ".", decimal.mark = ","), 
+                          " (", tod_summary()$`Discharged recovered`[2], ")")),
+      subtitle = HTML(paste0("<b>Total</b> ", prettyNum(tod_summary()$`Discharged recovered`[1], big.mark = ".", decimal.mark = ","))),
       icon = icon("band-aid"),
-      color = "yellow"
-    )
-  })
-  
-  output$Deces <- renderValueBox({
-    valueBox(
-      value = prettyNum(tod_summary()$Deceased[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Deceased</b> (", tod_summary()$Deceased[2], ")")),
-      icon = icon("ribbon"),
-      color = "red"
+      color = "orange"
     )
   })
   
   
   output$Swabs <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$Swabs[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Swabs</b> (", tod_summary()$Swabs[2], ")")),
+      value = HTML(paste0("Swabs <br>", prettyNum(tod_summary()$Swabs[3], big.mark = ".", decimal.mark = ","), " (", tod_summary()$Swabs[2], ")")),
+      subtitle = HTML(
+        paste0("<b>Molecular</b> ", prettyNum(tod_summary()$Swabs[4], big.mark = ".", decimal.mark = ","),
+               " <b>Antigenic</b> ", prettyNum(tod_summary()$Swabs[5], big.mark = ".", decimal.mark = ","),
+               " <b>Total</b> ", prettyNum(tod_summary()$Swabs[1], big.mark = ".", decimal.mark = ",")
+        )
+      ),
       icon = icon("syringe"),
-      color = "red"
+      color = "yellow"
     )
   })
   
   
   output$TestedCases <- renderValueBox({
+    
     valueBox(
-      value = prettyNum(tod_summary()$`Tested cases`[1], big.mark = " "),
-      subtitle = HTML(paste0("<b>Tested cases</b> (", tod_summary()$`Tested cases`[2], ")")),
-      #subtitle = HTML("January <dialog open>This is an open dialog window</dialog>"),
-      icon = icon("band-aid"),
-      color = "orange"
+      value = HTML(paste0("Tested cases <br>", prettyNum(tod_summary()$`Tested cases`[3], big.mark = ".", decimal.mark = ","), 
+                          " (", tod_summary()$`Tested cases`[2], ")")),
+      subtitle = HTML(paste0("<b>Total</b> ", prettyNum(tod_summary()$`Tested cases`[1], big.mark = ".", decimal.mark = ","))),
+      icon = icon("syringe"),
+      color = "red"
     )
   })
   
   output$LetRate <- renderValueBox({
+    
     valueBox(
-      value = paste0(tod_summary()$Letalita[1], "%"),
-      subtitle = HTML(paste0("<b>Fatality rate</b> (mortality rate is ", tod_summary()$Mortalita,"%)")),
+      value = HTML(paste0("Fatality rate <br>", prettyNum(tod_summary()$Letalita[1], big.mark = ".", decimal.mark = ","), "%")),
+      subtitle = HTML(paste0("<b>since the beginning of the epidemic</b>")),
+      icon = icon("skull"),
+      color = "orange"
+    )
+  })
+  
+  output$MortRate <- renderValueBox({
+    
+    valueBox(
+      value = HTML(paste0("Mortality rate <br>", prettyNum(tod_summary()$Mortalita[1], big.mark = ".", decimal.mark = ","), "%")),
+      subtitle = HTML(paste0("<b>since the beginning of the epidemic</b>")),
       icon = icon("skull"),
       color = "yellow"
     )
   })
+  
+  output$PosRate <- renderValueBox({
+    
+    valueBox(
+      value = HTML(paste0("Positivity rate <br>", prettyNum(tod_summary()$TassoPos[1], big.mark = ".", decimal.mark = ","), "%")),
+      subtitle = HTML(paste0("<b>as for WHO standard</b>")),
+      icon = icon("plus-square"),
+      color = "red"
+    )
+  })
+  
+  # output$ICUStress <- renderValueBox({
+  #   
+  #   valueBox(
+  #     value = paste0(tod_summary()$ICUStress[1], "%"),
+  #     subtitle = HTML(paste0("<b>Saturazione terapie intensive</b>")),
+  #     icon = icon("procedures"),
+  #     color = "yellow"
+  #   )
+  # })
   
   # Help button for definitions
   observeEvent(input$ImpDef, {helpbttn()})
@@ -557,7 +698,8 @@ server <- function(input, output, session){
   # If Variations, then select which
   output$IncrPercSiNo <- renderUI({
     if(input$IncrementiSiNo %in% c("daily variations","weekly variations")){
-      prettyRadioButtons(inputId = "IncrPercSiNo", label = "", shape = "round", status = "danger", choices = list("Absolute", "Relative (%)"), icon = icon("check"), selected = "Absolute", inline = T)
+      prettyRadioButtons(inputId = "IncrPercSiNo", label = "", shape = "round", status = "danger", 
+                         choices = list("Absolute", "Relative (%)"), icon = icon("check"), selected = "Absolute", inline = T)
     } else {
       return(NULL)
     }
@@ -566,8 +708,7 @@ server <- function(input, output, session){
   # If region, then pick one
   output$DisplayRegRow1 <- renderUI({
     if(input$DonBarPerReg){
-      pickerInput(inputId = "DisplayRegRow1", label = "Pick a region",
-                  choices = reg_choices,
+      pickerInput(inputId = "DisplayRegRow1", label = "Pick a region", choices = reg_choices,
                   selected = "Lombardia", width = "fit", inline = F, options = list(`actions-box` = FALSE,header = "Regions"))
     }else{
       return(NULL)
@@ -592,14 +733,8 @@ server <- function(input, output, session){
   # Pick region for model
   output$SelRegModel <- renderUI({
     if(input$ModRegioneSiNo){
-      pickerInput(inputId = "SelRegModel",
-                  label = "Select a region",
-                  choices = reg_choices,
-                  selected = "Lombardia",width = "300px",
-                  options = list(
-                    `actions-box` = FALSE,
-                    header = "Regions"
-                  ))
+      pickerInput(inputId = "SelRegModel", label = "Select a region", choices = reg_choices, selected = "Lombardia",width = "300px",
+                  options = list(`actions-box` = FALSE, header = "Regions"))
     }else{
       return(NULL)
     }
@@ -631,7 +766,7 @@ server <- function(input, output, session){
   })
   
   # Map
-  output$MapIta <- renderPlotly({
+  output$MapIta <- renderLeaflet({
     mmmap <- draw_map(dajoined = joined_reg(), reg = NULL, dajoinedprov = joined_prov(), is.density = input$WantDensity,
                       varsel = as.character(variable()), datasel = as.character(datetoselect()))
     if(input$TSRegioneSiNo){
@@ -665,20 +800,115 @@ server <- function(input, output, session){
   })
   
   # Barplot ratios
+  RegionRationIN <- reactive({input$RegionRatio})
+  RegionByRatio <- reactive({input$Ratio_by_region})
   output$Bar_ratio <- renderPlotly({
-    bar_out <- plot_ratios(da = dati_reg(), is.reg = F, reg = NULL, type_of_ratio = input$RatioIn, plot_type = "barplot")
-    if(input$Ratio_by_region){
-      bar_out <- plot_ratios(da = dati_reg(), is.reg = T, reg = input$RegionRatio, type_of_ratio = input$RatioIn, plot_type = "barplot")
+    if(input$RatioIn != "ICU Stress"){
+      bar_out <- plot_ratios(da = dati_reg(), is.reg = RegionByRatio(), reg = RegionRationIN(), type_of_ratio = input$RatioIn, 
+                             plot_type = "barplot", capICU = capacitaICU, sfItareg = italy_sf_reg)
+      
+    }else {
+      bar_out <- plot_ratios(da = dati_reg(), is.reg = F, reg = NULL, type_of_ratio = input$RatioIn, 
+                             plot_type = "barplot", capICU = capacitaICU, sfItareg = italy_sf_reg)
+      
     }
     return(bar_out)
+    
   })
-  #Time series ratios
+  
   output$TS_ratio <- renderPlotly({
-    ts_rat_out <- plot_ratios(da = dati_reg(), is.reg = F, reg = NULL, type_of_ratio = input$RatioIn, plot_type = "ts")
+    ts_rat_out <- plot_ratios(da = dati_reg(), is.reg = F, reg = NULL, type_of_ratio = input$RatioIn, plot_type = "ts", 
+                              weeklyvar = input$VarWeekratio, capICU = capacitaICU, sfItareg = italy_sf_reg)
     if(input$Ratio_by_region){
-      ts_rat_out <- plot_ratios(da = dati_reg(), is.reg = T, reg = input$RegionRatio, type_of_ratio = input$RatioIn, plot_type = "ts")
+      ts_rat_out <- plot_ratios(da = dati_reg(), is.reg = T, reg = input$RegionRatio, type_of_ratio = input$RatioIn, plot_type = "ts",
+                                weeklyvar = input$VarWeekratio, capICU = capacitaICU, sfItareg = italy_sf_reg)
     }
     return(ts_rat_out)
+  })
+  
+  ### VACCINI
+  output$VacReg <- renderUI({
+    if(input$VacIsReg){
+      pickerInput(inputId = "VacReg", label = "Select a region", choices = reg_choices, selected = "Lombardia", width = "300px",
+                  options = list(`actions-box` = FALSE, header = "Regioni"))
+    }else{
+      return(NULL)
+    }
+  })
+  output$VacDonutSesso <- renderPlotly({
+    if(input$VacIsReg){
+      pp <- vaccine_donut(v_data_somm(), type = "Gender", reg = input$VacReg)
+    }else{
+      pp <- vaccine_donut(v_data_somm(), type = "Gender", reg = NULL) 
+    }
+    return(pp)
+  })
+  
+  output$VacDonutCategoria <- renderPlotly({
+    if(input$VacIsReg){
+      pp <- vaccine_donut(v_data_somm(), type = "Category", reg = input$VacReg)
+    }else{
+      pp <- vaccine_donut(v_data_somm(), type = "Category", reg = NULL) 
+    }
+    return(pp)
+  })
+  
+  output$VacDonutEta <- renderPlotly({
+    if(input$VacIsReg){
+      pp <- vaccine_donut(v_data_somm(), type = "Age", reg = input$VacReg)
+    }else{
+      pp <- vaccine_donut(v_data_somm(), type = "Age", reg = NULL) 
+    }
+    return(pp)
+  })
+  
+  output$VaccineMap <- renderLeaflet({
+    dd <- vaccine_map_data(v_data_summ(), type = input$VacMapType, ita_sf = italy_sf_reg, res_data = residents) 
+    ppp <- dd[[1]] %>% st_set_crs(., "+proj=longlat +datum=WGS84")
+    ttl <- dd[[2]]
+    hover_add <- dd[[3]]
+    pal <- colorBin("YlOrRd", domain = ppp$Value, bins = round(quantile(ppp$Value, probs = seq(0,1,length.out = 5)),2))
+    ppp %>% 
+      mutate(popup = str_c("<strong>", NAME, "</strong>: ", Value, hover_add,
+                           ttl, Id1, "<br/>",
+                           "Administered doses: ", dosi_somministrate) %>%
+               map(htmltools::HTML)) %>% 
+      leaflet() %>% addTiles() %>%
+      setView(lng = 13, lat = 42, zoom = 5) %>%
+      addPolygons(label=~popup, fillColor = ~pal(Value), weight = 1, smoothFactor = 0.5, color = "black", opacity = 1.0, fillOpacity = 0.5,
+                  highlightOptions = highlightOptions(color = "white", weight = 2, bringToFront = TRUE),
+                  labelOptions = labelOptions(style = list("font-weight" = "normal", padding = "3px 8px"), textsize = "15px", direction = "auto")) %>% 
+      addLegend(pal = pal, values = ~n, opacity = 0.4, title = "Doses", position = "bottomleft")
+    
+  })
+  
+  output$VacItaDT <- function(){
+    if(input$VacIsReg){
+      tab_out <- show_vaccine(v_data_reg() %>% filter(denominazione_regione == input$VacReg))
+      dd <- v_data_reg()$data[1]
+      cap <- input$VacReg
+    }else{
+      tab_out <- show_vaccine(v_data_ana())
+      dd <- v_data_ana()$data[1]
+      cap <- "Italy"
+    }
+    
+    
+    tab_out %>% dplyr::select(Value, `Administered doses`) %>% rename(` ` = Value) %>% 
+      knitr::kable(format = "html", digits = 0, row.names = F, align = "c", caption = paste("Vaccines in", cap,"updated on ", dd)) %>% 
+      kableExtra::kable_styling(bootstrap_options = "striped", full_width = F) %>% 
+      kableExtra::group_rows("Age class", 1, 9) %>% 
+      kableExtra::group_rows("Gender", 10, 11) %>% 
+      kableExtra::group_rows("Category", 12, 14)
+    
+  }
+  
+  output$VaccineRawData <- renderDT({
+    
+    datatable(show_vaccine_reg(v_data_summ(), resdata = residents, TotPop = TotPop),
+              caption = paste("Doses by region updated on", v_data_summ()$data[1]), rownames = F,
+              options = list(dom = 'tpl', pageLength = 7, lengthMenu = c(7,14,21), columnDefs = list(list(className = 'dt-center', targets = "_all"))))
+    
   })
   
   # Icu data preparation
@@ -687,12 +917,13 @@ server <- function(input, output, session){
   tICU$tb <- loadData(token = token)
   
   icu_data <- reactive({
-    if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){dataprep_terapie(dftoprep = dati_reg() %>% spread(Key, Value), resdata = residents)}
+    if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){dataprep_terapie(dftoprep = dati_reg() %>% spread(Key, Value), resdata = residents, 
+                                                                          capICULast = capacitaICU$Capienza[capacitaICU$data == max(isolate(tICU$tb)$DataPred)])}
   })
   
   if(isolate(tdy()) == max(isolate(tICU$tb)$DataPred)){
     showModal(modalDialog(
-      HTML("<p align='center'>We are updating the app..please be patient and wait!</p>"),
+      HTML("<p align='center'>The app is updating..please be patient and wait without disconnecting!</p>"),
       size = "m",
       title = HTML("<b>WARNING</b>"), easyClose = F))
   }
@@ -714,7 +945,7 @@ server <- function(input, output, session){
   
   # Data head ICU
   output$ICUTabHead <- renderUI({
-    tags$h2(tags$strong(paste("Prediction* of Intensive care units on the ", paste_eng_date(datasuTabella))))
+    tags$h2(tags$strong(paste("Prediction* of intensive care units** on the ", paste_eng_date(datasuTabella))))
   })
   
   # Data barplot ICU
@@ -760,6 +991,37 @@ server <- function(input, output, session){
   RegMSelected <- eventReactive(input$updatemodel, {input$SelRegModel})
   FamMSelected <- eventReactive(input$updatemodel, {input$ModelFamily})
   RegModSiNo <-  eventReactive(input$updatemodel, {input$ModRegioneSiNo})
+  WWave <- eventReactive(input$updatemodel, {input$WhichWave})
+  DWave <- eventReactive(input$updatemodel, {input$DateWave})
+  
+  
+  # output$HelpCovs <- renderUI({
+  #   if(input$VarForModel == "New positives"){
+  #   helpText("Clicking the checkbox below, you can use the number of tested cases and the weekend effect for estimation purposes")
+  #   } else{
+  #     return(NULL)
+  #   }
+  # })
+  # output$AddCovariates <- renderUI({
+  #   if(input$VarForModel == "New positives"){
+  #     prettyCheckbox(inputId = "AddCovariates", label = "Add covariates", value = F, status = "danger", icon = icon("check"))
+  #   } else{
+  #     return(F)
+  #   }
+  # })
+  
+  #AddCov <- eventReactive(input$updatemodel, {input$AddCovariates})  
+  # Data for model
+  output$ExcludeDaysModel <- renderUI({
+    if(input$WhichWave == "I part"){
+      sliderInput(inputId = "ExcludeDaysModel", label = "Fitting interval (exclude up to the last 15 days):", 
+                  min = as.Date(input$DateWave)-14, max = as.Date(input$DateWave), value = as.Date(input$DateWave), width = "300px")
+    }else{
+      sliderInput(inputId = "ExcludeDaysModel", label = "Fitting interval (exclude up to the last 15 days):", 
+                  min = tdy()-14, max = tdy(), value = tdy(), width = "300px")
+    }
+    
+  })
   
   # Run the model
   outputModello <- eventReactive( input$updatemodel, {
@@ -772,7 +1034,8 @@ server <- function(input, output, session){
         return(
           tryCatch(
             suppressWarnings(run_growth_model(da = data_formodel_prep(), reduce_obs = as.character(input$ExcludeDaysModel), reg = RegMSelected(), 
-                                              wh = VMSelected(), horizon = 30, fam = FamMSelected())),
+                                              wh = VMSelected(), horizon = 30, fam = FamMSelected(), 
+                                              wave = WWave(), DataWave = DWave())),
             error = function(e){ return("The model could not converge. Try again!") } 
           )
         )
@@ -780,7 +1043,8 @@ server <- function(input, output, session){
         return(
           tryCatch(
             suppressWarnings(run_growth_model(da = data_formodel_prep(), reg = NULL, reduce_obs = as.character(input$ExcludeDaysModel),
-                                              wh = VMSelected(), horizon = 30, fam = FamMSelected())),
+                                              wh = VMSelected(), horizon = 30, fam = FamMSelected(), 
+                                              wave = input$WhichWave, DataWave = DWave())),
             error = function(e){ return("The model could not converge. Try again!") } 
           )
         )
@@ -792,7 +1056,7 @@ server <- function(input, output, session){
   
   # Display bands and related messages
   output$Doyouwantbands <- renderUI({
-    if(outputModello()$NoConv & !is.character(outputModello()$BandsError)){
+    if(outputModello()$NoConv){
       HTML(paste("<h5><b>Possible local optimum. Confidence interval could be inaccurate (or not available)!</b></h5>"))
     }else{
       return(NULL)
@@ -801,21 +1065,9 @@ server <- function(input, output, session){
    
   
   output$Showbands <- renderUI({
-    if(is.character(outputModello()$BandsError)){
-      HTML(paste0("<b>Confidence interval is not available!</b><br/>"))
-    } else{
-      if(outputModello()$NoConv){
-        checkboxInput(inputId = "Showbands", label = "Add 99% confidence interval", value = F)
-      }else{ return(NULL) }
-    }
-  })
-  
-  output$CannotPlotBands <- renderUI({
-    if(input$Showbands & sum(is.na(outputModello()$stderrs) | is.nan(outputModello()$stderrs))>0){
-      HTML(paste0("<b>Confidence interval is not available!</b><br/>"))
-    }else{
-      return(NULL)
-    }
+    if(outputModello()$NoConv){
+      checkboxInput(inputId = "Showbands", label = "Add 95% confidence interval", value = F)
+    }else{ return(NULL) }
   })
   
   # Summary of the model
@@ -830,13 +1082,13 @@ server <- function(input, output, session){
   
   # Plot 1
   output$PredCumCases <- renderPlotly({
-    reg <- ifelse(is.null(RegMSelected()), "Italy", as.character(RegMSelected()))
+    reg <- ifelse(RegModSiNo(), as.character(RegMSelected()), "Italy")
     plot_out_model(outputmod = outputModello(), horizon = input$SelDateModel, VarModel = VMSelected(), showbands = input$Showbands, reg = reg)
   })
   
   # Table model output
   output$DatPred <- renderDT({
-    reg <- ifelse(is.null(RegMSelected()), "Italy", as.character(RegMSelected()))
+    reg <- ifelse(RegModSiNo(), as.character(RegMSelected()), "Italy")
     DT_out_model(outputmod = outputModello(), horizon = 15, VarModel = VMSelected(), showbands = input$Showbands, reg = reg)
   })
   
