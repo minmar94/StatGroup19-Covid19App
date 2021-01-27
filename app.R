@@ -338,7 +338,7 @@ ui <- navbarPage(theme = shinytheme("sandstone"),
                           )),
                  # TAB 4 - VACCINI
                  tabPanel(
-                   "Vaccinazioni", icon = icon("syringe"),
+                   "Vaccines", icon = icon("syringe"),
                    sidebarLayout(
                      sidebarPanel(width = 3,
                                   prettyRadioButtons("VacMapType", label = "Vaccine doses map (select one of the followings)", 
