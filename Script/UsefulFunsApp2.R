@@ -388,8 +388,22 @@ table_raw_data <- function(tab, datesel, resdata, capICU){
            `Fatality rate (%)` = round((Deceased/`Cumulative positives`)*100, 2),
            `ICU/capacity (%)` = round((`Intensive care`/`Capienza`)*100,2))
   
-  dt_out <- raw_app %>% 
-    filter(Date == datesel) %>% 
+  Ita_aggreg <- raw_app %>% 
+    group_by(Date) %>% summarise_at(vars(`Cumulative positives`:`Tested cases`, Capienza, Residents), sum) %>% ungroup() %>% 
+    #arrange(desc(Data)) %>%
+    mutate(Region = "Italy",
+           Incrpos = c(`New positives`[1], diff(`New positives`)),
+           Incrdeaths = c(`New deaths`[1], diff(`New deaths`)),
+           `Cum. Pos. (x 1000 residents)` = round((`Cumulative positives`/Residents)*1000,2),
+           `Deceas. (x 1000 residents)` = round((`Deceased`/Residents)*1000,2),
+           `Tested cases (x 1000 residents)` = round((`Tested cases`/Residents)*1000,2),
+           `Fatality rate (%)` = round((Deceased/`Cumulative positives`)*100, 2),
+           `ICU/capacity (%)` = round((`Intensive care`/`Capienza`)*100,2))
+  
+  tab_out <- bind_rows(raw_app %>% filter(Date == datesel),
+                       Ita_aggreg %>% filter(Date == datesel))
+  
+  dt_out <- tab_out %>% 
     dplyr::select(-Date) %>% 
     datatable(class = "cell-border stripe", 
               caption = "The yellow and grey cells reflect a decrease in the number of new positives and new deaths w.r.t. the previous day; viceversa, the red and black ones.",
@@ -400,7 +414,7 @@ table_raw_data <- function(tab, datesel, resdata, capICU){
                   "function(settings, json) {",
                   "$('body').css({'font-family': 'Calibri'});",
                   "}"
-                ), pageLength = 20,
+                ), pageLength = 21,
                 dom = 't', columnDefs = list(
                   list(className = 'dt-center', targets = "_all"),
                   list(visible = F, targets = c(7, 8,9,10))
